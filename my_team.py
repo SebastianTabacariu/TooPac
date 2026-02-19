@@ -212,4 +212,7 @@ Change evaluation function
 Return home after eating certain amount of dots
 When scared, become attacker
 
+Search algorithms:
+Minimax, 
+
 """
