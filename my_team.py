@@ -211,6 +211,7 @@ Change evaluation function
 
 
 Features: 
+Find way to keep number of the amount of food dots an agent has eaten
 Return home after eating certain amount of dots
 When scared, become attacker
 When near home, return home to get score  
