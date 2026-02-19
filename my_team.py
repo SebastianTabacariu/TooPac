@@ -200,3 +200,14 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
 
 
+"""
+ideas to implement
+
+time management:
+when time is low and losing, full attack
+when time is low and wining, full defense
+
+
+
+
+"""
