@@ -205,7 +205,7 @@ ideas to implement
 
 time management:
 when time is low and losing, full attack
-when time is low and wining, full defense
+when time is low and winning, full defense
 
 Change evaluation function
 
