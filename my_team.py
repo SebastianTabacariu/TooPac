@@ -209,8 +209,11 @@ when time is low and wining, full defense
 
 Change evaluation function
 
+
+Features: 
 Return home after eating certain amount of dots
 When scared, become attacker
+When near home, return home to get score  
 
 Search algorithms:
 Minimax, 
