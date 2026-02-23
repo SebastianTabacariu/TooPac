@@ -72,7 +72,6 @@ class ReflexCaptureAgent(CaptureAgent):
         """
         Picks among the actions with the highest Q(s,a).
         """
-        print("testing actions")
         actions = game_state.get_legal_actions(self.index)
 
         # You can profile your evaluation time by uncommenting these lines
@@ -144,21 +143,32 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
   """
 
     def get_features(self, game_state, action):
+        carrying_dots = 4  # NEW: after 4 dots, go back home
+        danger_dist = 5 # NEW: 5 steps far away, pacman is in danger
         features = util.Counter()
+        
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
         features['successor_score'] = -len(food_list)  # self.get_score(successor)
+        
 
         # Compute distance to the nearest food
 
-        if len(food_list) > 0:  # This should always be True,  but better safe than sorry
+        if len(food_list) > 0:  # his should always be True,  but better safe than sorry
             my_pos = successor.get_agent_state(self.index).get_position()
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
             features['distance_to_food'] = min_distance
         return features
 
     def get_weights(self, game_state, action):
-        return {'successor_score': 100, 'distance_to_food': -1}
+        return {'successor_score': 100, 'distance_to_food': -1,}
+    
+    # NEW implementation: 1) Go back home when carrying more than N dots 
+    #   or when danger is high (a lot of unscared ghosts near the agent)
+    
+
+
+
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
@@ -203,20 +213,15 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 """
 ideas to implement
 
-time management:
-when time is low and losing, full attack
-when time is low and winning, full defense
+1) Go back home when carrying more than N dots 
+or when danger is high (a lot of unscared ghosts near the agent)
 
-Change evaluation function
+2) punish the moves that bring you closer to vsisible unscared ghosts,
+we should safer routes > shorter routes
 
+3) defense when food dots get stolen, try and catch the enemy that ate it/them
 
-Features: 
-Find way to keep number of the amount of food dots an agent has eaten
-Return home after eating certain amount of dots
-When scared, become attacker
-When near home, return home to get score  
-
-Search algorithms:
-Minimax, 
+4) last N moves of the game, if we are winning, we should stay home and defend,
+if we are losing, go full attack.
 
 """
