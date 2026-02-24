@@ -270,7 +270,7 @@ ideas to implement
 or when danger is high. -> IMPLEMENTED
 
 2) punish the moves that bring you closer to visible unscared ghosts,
-we should safer routes > shorter routes
+we should safer routes > shorter routes -> Half implemented.
 
 3) defense when food dots get stolen, try and catch the enemy that ate it/them
 
