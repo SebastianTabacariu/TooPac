@@ -141,30 +141,76 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
   we give you to get an idea of what an offensive agent might look like,
   but it is by no means the best or only way to build an offensive agent.
   """
+    # NEW implementation: 1) Go back home when carrying more than N dots 
+    #   or when danger is high
+    carrying_dots = 4  # NEW: after 4 dots, go back home
+    danger_dist = 5 # NEW: 5 steps far away, pacman is in danger
+    
+    def _min_dist_enemy_ghost(self, successor):
+
+        my_pos = successor.get_agent_state(self.index).get_position()
+        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+
+        ghost_positions = []
+        for e in enemies:
+            pos = e.get_position()
+            if pos is None: # enemy not visible
+                continue
+            if e.is_pacman:
+                continue
+            if e.scared_timer > 0:
+                continue
+            ghost_positions.append(pos)
+
+        if not ghost_positions:
+            return None # no dangerous ghosts found
+        
+        return min(self.get_maze_distance(my_pos, danger_ghost) for danger_ghost in ghost_positions)
+    
+
+    def _should_return_home(self, game_state, successor):
+        # return if carrying more than N dots or if it is dangerous
+
+        carrying = game_state.get_agent_state(self.index).num_carrying
+        if carrying >= self.carrying_dots:
+            return True 
+        
+        min_ghost_distance = self._min_dist_enemy_ghost(successor)
+        return (min_ghost_distance is not None and min_ghost_distance <= self.danger_dist)
+            
+            
+
 
     def get_features(self, game_state, action):
-        carrying_dots = 4  # NEW: after 4 dots, go back home
-        danger_dist = 5 # NEW: 5 steps far away, pacman is in danger
         features = util.Counter()
         
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
+        my_pos = successor.get_agent_state(self.index).get_position()
+        returning = self._should_return_home(game_state, successor)
         features['successor_score'] = -len(food_list)  # self.get_score(successor)
-        
+       
+        if returning:
+            features['distance_to_home'] = self.get_maze_distance(my_pos, self.start) 
 
-        # Compute distance to the nearest food
+        else:  
+            if len(food_list) > 0:  # his should always be True,  but better safe than sorry
+                features['distance_to_food'] = min(self.get_maze_distance(my_pos, food) for food in food_list)
 
-        if len(food_list) > 0:  # his should always be True,  but better safe than sorry
-            my_pos = successor.get_agent_state(self.index).get_position()
-            min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
-            features['distance_to_food'] = min_distance
+                
+
         return features
 
     def get_weights(self, game_state, action):
-        return {'successor_score': 100, 'distance_to_food': -1,}
+        successor = self.get_successor(game_state, action)
+        returning = self._should_return_home(game_state, successor)
+
+        if returning:
+            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -10}
+        
+        else:
+            return {'successor_score': 100, 'distance_to_food': -1, 'distance_to_home': 0}
     
-    # NEW implementation: 1) Go back home when carrying more than N dots 
-    #   or when danger is high (a lot of unscared ghosts near the agent)
     
 
 
@@ -214,7 +260,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 ideas to implement
 
 1) Go back home when carrying more than N dots 
-or when danger is high (a lot of unscared ghosts near the agent)
+or when danger is high. -> IMPLEMENTED
 
 2) punish the moves that bring you closer to vsisible unscared ghosts,
 we should safer routes > shorter routes
