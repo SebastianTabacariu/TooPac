@@ -189,7 +189,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         my_pos = successor.get_agent_state(self.index).get_position()
         returning = self._should_return_home(game_state, successor)
         features['successor_score'] = -len(food_list)  # self.get_score(successor)
-       
+        d = self._min_dist_enemy_ghost(successor)
+
+        #NEW: avoid DANGER
+        if d is None:
+            features['min_enemy_ghost_distance'] = 0
+        else:
+            features['min_enemy_ghost_distance'] = min(d, 10)
+        #NEW: if we return, keep the distance to home
         if returning:
             features['distance_to_home'] = self.get_maze_distance(my_pos, self.start) 
 
@@ -206,10 +213,10 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         returning = self._should_return_home(game_state, successor)
 
         if returning:
-            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -10}
+            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -10, 'min_enemy_ghost_distance': 3}
         
         else:
-            return {'successor_score': 100, 'distance_to_food': -1, 'distance_to_home': 0}
+            return {'successor_score': 100, 'distance_to_food': -1, 'distance_to_home': 0, 'min_enemy_ghost_distance': 3}
     
     
 
@@ -262,7 +269,7 @@ ideas to implement
 1) Go back home when carrying more than N dots 
 or when danger is high. -> IMPLEMENTED
 
-2) punish the moves that bring you closer to vsisible unscared ghosts,
+2) punish the moves that bring you closer to visible unscared ghosts,
 we should safer routes > shorter routes
 
 3) defense when food dots get stolen, try and catch the enemy that ate it/them
