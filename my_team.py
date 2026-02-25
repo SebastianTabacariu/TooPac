@@ -67,6 +67,7 @@ class ReflexCaptureAgent(CaptureAgent):
     def register_initial_state(self, game_state):
         self.start = game_state.get_agent_position(self.index)
         CaptureAgent.register_initial_state(self, game_state)
+     
 
     def choose_action(self, game_state):
         """
@@ -211,9 +212,16 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def get_weights(self, game_state, action):
         successor = self.get_successor(game_state, action)
         returning = self._should_return_home(game_state, successor)
+        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+        invincible = any(e.get_position() is not None and e.scared_timer > 0 for e in enemies)
+    
 
         if returning:
-            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -10, 'min_enemy_ghost_distance': 3}
+            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8}
+        if invincible:
+            return {'successor_score': 100, 'distance_to_food': 0, 'distance_to_home': 0, 'min_enemy_ghost_distance': -10}
+    
+
         
         else:
             return {'successor_score': 100, 'distance_to_food': -1, 'distance_to_home': 0, 'min_enemy_ghost_distance': 3}
@@ -299,13 +307,14 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
         # New: when invisible invader
         else:   
-            recent_stolen_step_count = 10 #how many steps we care about
+            recent_stolen_step_count = 5 #how many steps we care about
             if self.last_stolen_pos is not None and (self.last_stolen_step -self.step_count) <= recent_stolen_step_count:
                 features['stolen_food_distance'] = self.get_maze_distance(my_pos, self.last_stolen_pos)    
 
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
         if action == rev: features['reverse'] = 1
+
 
         return features
 
