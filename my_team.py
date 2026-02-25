@@ -146,7 +146,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     #   or when danger is high
     carrying_dots = 5  # NEW: after 5 dots, go back home
     danger_dist = 5 # NEW: 5 steps far away, pacman is in danger
-    
+          #NEW
     def _min_dist_enemy_ghost(self, successor):
 
         my_pos = successor.get_agent_state(self.index).get_position()
@@ -168,7 +168,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         
         return min(self.get_maze_distance(my_pos, danger_ghost) for danger_ghost in ghost_positions)
     
-
+      #NEW
     def _should_return_home(self, game_state, successor):
         # return if carrying more than N dots or if it is dangerous
 
@@ -211,6 +211,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
     def get_weights(self, game_state, action):
         successor = self.get_successor(game_state, action)
+        # NEW
         returning = self._should_return_home(game_state, successor)
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         invincible = any(e.get_position() is not None and e.scared_timer > 0 for e in enemies)
@@ -250,7 +251,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
        # local step counter
         self.step_count = 0
 
-
+      #NEW
     def choose_action(self, game_state):
         current_food = self.get_capsules_you_are_defending(game_state)
 
@@ -317,7 +318,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
 
         return features
-
+   #Updated
     def get_weights(self, game_state, action):
         return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -10}
 
