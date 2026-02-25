@@ -143,7 +143,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
   """
     # NEW implementation: 1) Go back home when carrying more than N dots 
     #   or when danger is high
-    carrying_dots = 4  # NEW: after 4 dots, go back home
+    carrying_dots = 5  # NEW: after 5 dots, go back home
     danger_dist = 5 # NEW: 5 steps far away, pacman is in danger
     
     def _min_dist_enemy_ghost(self, successor):
@@ -231,6 +231,52 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
     could be like.  It is not the best or only way to make
     such an agent.
     """
+  # NEW
+    def register_initial_state(self, game_state):
+        super().register_initial_state(game_state)
+
+        self.prev_defended_food = self.get_food_you_are_defending(game_state).as_list()
+
+        self.last_stolen_pos = None
+        self.last_stolen_step = -float('inf')
+       # local step counter
+        self.step_count = 0
+
+
+    def choose_action(self, game_state):
+        current_food = self.get_capsules_you_are_defending(game_state)
+
+        # Detect missing food
+        missing = set(self.prev_defended_food) - set(current_food)
+
+        if missing:
+            # multiple eaten
+            my_pos = game_state.get_agent_state(self.index).get_position()
+            if my_pos is not None:
+                best_pos = None
+                min_dist = float('inf')
+
+                for m in missing:
+                    d = self.get_maze_distance(my_pos, m)
+                    if d < min_dist:
+                        min_dist = d
+                        best_pos = m
+
+                self.last_stolen_pos = best_pos
+
+            else:   
+                self.last_stolen_pos = next(iter(missing))
+
+            self.last_stolen_step = self.step_count            
+
+        self.prev_defended_food = current_food
+        self.step_count += 1
+
+        # not missing: normal behaviour          
+        return super().choose_action(game_state)    
+    
+
+
 
     def get_features(self, game_state, action):
         features = util.Counter()
@@ -251,6 +297,12 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
             features['invader_distance'] = min(dists)
 
+        # New: when invisible invader
+        else:   
+            recent_stolen_step_count = 10 #how many steps we care about
+            if self.last_stolen_pos is not None and (self.last_stolen_step -self.step_count) <= recent_stolen_step_count:
+                features['stolen_food_distance'] = self.get_maze_distance(my_pos, self.last_stolen_pos)    
+
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
         if action == rev: features['reverse'] = 1
@@ -258,7 +310,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         return features
 
     def get_weights(self, game_state, action):
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2}
+        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -10}
 
 
 
@@ -272,9 +324,11 @@ or when danger is high. -> IMPLEMENTED
 2) punish the moves that bring you closer to visible unscared ghosts,
 we should safer routes > shorter routes -> Half implemented.
 
-3) defense when food dots get stolen, try and catch the enemy that ate it/them
+3) defense when food dots get stolen, try and catch the enemy that ate it/them -> IMPLEMENTED
+
+3.b) IMPORTANT: if the enemy has recently eaten a capsule, do not try and capture him -> NOT YET IMPLEMENTED
 
 4) last N moves of the game, if we are winning, we should stay home and defend,
-if we are losing, go full attack.
+if we are losing, go full attack. -> NOT YET IMPLEMENTED
 
 """
