@@ -194,15 +194,29 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         #NEW: avoid DANGER
         if d is None:
-            features['min_enemy_ghost_distance'] = 0
+            features['min_enemy_ghost_distance'] = 10
         else:
             features['min_enemy_ghost_distance'] = min(d, 10)
         #NEW: if we return, keep the distance to home
         if returning:
             features['distance_to_home'] = self.get_maze_distance(my_pos, self.start) 
+        #NEW: hunt scared ghost when on offense
+        my_state = successor.get_agent_state(self.index)
+        if my_state.is_pacman:
+            enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+            scared_ghost_positions = []
+            for e in enemies:
+               if (not e.is_pacman) and e.get_position() is not None and e.scared_timer > 0:
+                   enemy_position = e.get_position() 
+                   scared_ghost_positions.append(enemy_position)
 
-        else:  
-            if len(food_list) > 0:  # his should always be True,  but better safe than sorry
+            if scared_ghost_positions:
+                enemies_dist = min(self.get_maze_distance(my_pos, ghost_pos) for ghost_pos in scared_ghost_positions)
+                # the closer, the better
+                features['hunt_scared_ghost'] = 10 - min(enemies_dist, 10)       
+
+  
+        if not returning and  len(food_list) > 0:  # his should always be True,  but better safe than sorry
                 features['distance_to_food'] = min(self.get_maze_distance(my_pos, food) for food in food_list)
 
                 
@@ -213,19 +227,13 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         successor = self.get_successor(game_state, action)
         # NEW
         returning = self._should_return_home(game_state, successor)
-        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
-        invincible = any(e.get_position() is not None and e.scared_timer > 0 for e in enemies)
     
 
         if returning:
-            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8}
-        if invincible:
-            return {'successor_score': 100, 'distance_to_food': 0, 'distance_to_home': 0, 'min_enemy_ghost_distance': -10}
+            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8, 'hunt_scared_ghost': 0}
     
-
-        
         else:
-            return {'successor_score': 100, 'distance_to_food': -1, 'distance_to_home': 0, 'min_enemy_ghost_distance': 3}
+            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1}
     
     
 
