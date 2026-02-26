@@ -261,7 +261,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
       #NEW
     def choose_action(self, game_state):
-        current_food = self.get_capsules_you_are_defending(game_state)
+        current_food = self.get_food_you_are_defending(game_state).as_list()
 
         # Detect missing food
         missing = set(self.prev_defended_food) - set(current_food)
@@ -302,6 +302,10 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         my_state = successor.get_agent_state(self.index)
         my_pos = my_state.get_position()
 
+        # New: If enemy recently ate a capsule, ghost become scared. While scared, do NOT chase the enemy to capture them. Instead, keep distance. 
+        scared = (my_state.scared_timer > 0)
+
+
         # Computes whether we're on defense (1) or offense (0)
         features['on_defense'] = 1
         if my_state.is_pacman: features['on_defense'] = 0
@@ -317,7 +321,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         # New: when invisible invader
         else:   
             recent_stolen_step_count = 5 #how many steps we care about
-            if self.last_stolen_pos is not None and (self.last_stolen_step -self.step_count) <= recent_stolen_step_count:
+            if (not scared) and self.last_stolen_pos is not None and (self.step_count -self.last_stolen_step) <= recent_stolen_step_count:
                 features['stolen_food_distance'] = self.get_maze_distance(my_pos, self.last_stolen_pos)    
 
         if action == Directions.STOP: features['stop'] = 1
@@ -328,6 +332,15 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         return features
    #Updated
     def get_weights(self, game_state, action):
+        
+        successor = self.get_successor(game_state, action)
+        my_state = successor.get_agent_state(self.index)
+
+        #If we are scared, avoid invaders instead of chasing. 
+        if my_state.scared_timer > 0:
+            return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': 10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0}
+        
+        #Non scared behaviour, chase invaders and stolen food. 
         return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -10}
 
 
@@ -344,7 +357,7 @@ we should safer routes > shorter routes -> Half implemented.
 
 3) defense when food dots get stolen, try and catch the enemy that ate it/them -> IMPLEMENTED
 
-3.b) IMPORTANT: if the enemy has recently eaten a capsule, do not try and capture him -> NOT YET IMPLEMENTED
+3.b) IMPORTANT: if the enemy has recently eaten a capsule, do not try and capture him -> IMPLEMENTED
 
 4) last N moves of the game, if we are winning, we should stay home and defend,
 if we are losing, go full attack. -> NOT YET IMPLEMENTED
