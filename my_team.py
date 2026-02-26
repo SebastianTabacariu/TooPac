@@ -409,5 +409,12 @@ we should safer routes > shorter routes -> Half implemented.
 4) last N moves of the game, if we are winning, we should stay home and defend,
 if we are losing, go full attack. -> IMPLEMENTED --> STILL NEEDS ADJUSTMENT -> after capturing food you must return home and avoid the ghosts.
 
+5) Add STOP + reverse penalties on offense
+
+6) the return-home threshold is static (N = 5), we should make a dynamic one depending on the layout and also If winning: return earlier / play safer, If losing: carry more before returning (take calculated risks). 
+
+7) when a dangerous ghost is close and a capsule is reachable, prefer pathing to a capsule, we convert DANGER -> potential points
+
+8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared?
 
 """
