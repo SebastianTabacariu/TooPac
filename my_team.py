@@ -59,6 +59,8 @@ class ReflexCaptureAgent(CaptureAgent):
     """
     A base class for reflex agents that choose score-maximizing actions
     """
+    # New: Last 'N' moves which we can later change to our preference. The use of this will later be explained in the code.
+    ENDGAME_STEPS = 500
 
     def __init__(self, index, time_for_computing=.1):
         super().__init__(index, time_for_computing)
@@ -134,6 +136,20 @@ class ReflexCaptureAgent(CaptureAgent):
         a counter or a dictionary.
         """
         return {'successor_score': 1.0}
+    
+    #New: Implementation in which the remaining moves are stored, which give us the last N moves, and an implementation which states if were currently winning or not.   
+    # These are used as part of our nr.4 implementation.
+
+    def _time_left(self, game_state):
+        return game_state.data.timeleft 
+    
+    def _in_endgame(self, game_state):
+        return self._time_left(game_state) <= self.ENDGAME_STEPS
+    
+    def _we_are_winning(self, game_state):
+        return self.get_score(game_state) > 0
+    
+
 
 
 class OffensiveReflexAgent(ReflexCaptureAgent):
@@ -171,6 +187,13 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
       #NEW
     def _should_return_home(self, game_state, successor):
         # return if carrying more than N dots or if it is dangerous
+        # return if we are in the last N moves and are currently winning, or else continue attacking
+
+        if self._in_endgame(game_state):
+            if self._we_are_winning(game_state):
+                return True
+            else:
+                return False
 
         carrying = game_state.get_agent_state(self.index).num_carrying
         if carrying >= self.carrying_dots:
@@ -305,6 +328,24 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         # New: If enemy recently ate a capsule, ghost become scared. While scared, do NOT chase the enemy to capture them. Instead, keep distance. 
         scared = (my_state.scared_timer > 0)
 
+        # New: Part of idea 4: If we are losing or tied near the end, go for full attack. Move toward enemy food.
+        # if winning, we keep on defending. 
+
+        endgame = self._in_endgame(game_state)
+        winning = self._we_are_winning(game_state)
+
+        if endgame and (not winning):
+            food_list = self.get_food(successor).as_list()
+            features['successor_score'] = -len(food_list)
+
+            if len(food_list) > 0:
+                min_distance = 9999
+                for food in food_list:
+                    dist = self.get_maze_distance(my_pos, food)
+                    if dist < min_distance:
+                        min_distance = dist
+                features['distance_to_food'] = min_distance
+
 
         # Computes whether we're on defense (1) or offense (0)
         features['on_defense'] = 1
@@ -336,6 +377,12 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         successor = self.get_successor(game_state, action)
         my_state = successor.get_agent_state(self.index)
 
+        endgame = self._in_endgame(game_state)
+        winning = self._we_are_winning(game_state)
+
+        if endgame and (not winning):
+            return  {'num_invaders': 0, 'on_defense': -50, 'invader_distance': 0, 'succesor_score': 100, 'distance_to_food': -3, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0}
+
         #If we are scared, avoid invaders instead of chasing. 
         if my_state.scared_timer > 0:
             return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': 10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0}
@@ -360,6 +407,7 @@ we should safer routes > shorter routes -> Half implemented.
 3.b) IMPORTANT: if the enemy has recently eaten a capsule, do not try and capture him -> IMPLEMENTED
 
 4) last N moves of the game, if we are winning, we should stay home and defend,
-if we are losing, go full attack. -> NOT YET IMPLEMENTED
+if we are losing, go full attack. -> IMPLEMENTED --> STILL NEEDS ADJUSTMENT -> after capturing food you must return home and avoid the ghosts.
+
 
 """
