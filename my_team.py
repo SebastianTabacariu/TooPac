@@ -280,7 +280,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                         best_pos = m
 
                 self.last_stolen_pos = best_pos
-
+             # can't compute distance (NONE)
             else:   
                 self.last_stolen_pos = next(iter(missing))
 
