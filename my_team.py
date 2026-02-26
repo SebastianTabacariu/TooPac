@@ -145,7 +145,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     # NEW implementation: 1) Go back home when carrying more than N dots 
     #   or when danger is high
     carrying_dots = 5  # NEW: after 5 dots, go back home
-    danger_dist = 5 # NEW: 5 steps far away, pacman is in danger
+    danger_dist = 3 # NEW: 5 steps far away, pacman is in danger
           #NEW
     def _min_dist_enemy_ghost(self, successor):
 
