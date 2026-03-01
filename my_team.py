@@ -158,11 +158,40 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
   we give you to get an idea of what an offensive agent might look like,
   but it is by no means the best or only way to build an offensive agent.
   """
-    # NEW implementation: 1) Go back home when carrying more than N dots 
-    #   or when danger is high
-    carrying_dots = 5  # NEW: after 5 dots, go back home
-    danger_dist = 3 # NEW: 5 steps far away, pacman is in danger
-          #NEW
+    
+    def register_initial_state(self, game_state):
+        super().register_initial_state(game_state)
+
+        #NEW
+        walls = game_state.get_walls()
+        width, height = walls.width, walls.height
+        # map size
+        area = width * height
+
+        #threshold to carry from layout
+        self.base_carry_threshold = max(3, min(9, int(area / 120)))
+
+
+    #NEW:  dynamic carry threshold
+    def _carry_threshold(self, game_state):
+
+        carry = self.base_carry_threshold
+
+        if self._we_are_winning(game_state):
+            #play safe
+            carry -= 2
+
+        else:  
+            #risky, we are losing
+            carry += 2
+
+
+        return max(2, min(12, carry))    
+
+
+
+
+
     def _min_dist_enemy_ghost(self, successor):
 
         my_pos = successor.get_agent_state(self.index).get_position()
@@ -190,6 +219,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # return if we are in the last N moves and are currently winning, or else continue attacking
         # NEW:  if we are winning, we should stay/go home and defend
         danger = (min_ghost_distance is not None and min_ghost_distance <= self.danger_dist)
+        carrying = game_state.get_agent_state(self.index).num_carrying
+        min_ghost_distance = self._min_dist_enemy_ghost(successor)
+
+        #NEW
+        threshold = self._carry_threshold(game_state)
 
         if self._in_endgame(game_state):
             if self._we_are_winning(game_state):
@@ -198,11 +232,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 return True
             return danger
 
-        carrying = game_state.get_agent_state(self.index).num_carrying
-        if carrying >= self.carrying_dots:
+        
+        if carrying >= threshold:
             return True 
         
-        min_ghost_distance = self._min_dist_enemy_ghost(successor)
+        
         return danger
             
             
@@ -255,6 +289,10 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if not returning and  len(food_list) > 0:  # his should always be True,  but better safe than sorry
                 features['distance_to_food'] = min(self.get_maze_distance(my_pos, food) for food in food_list)
 
+       # NEW: STOP + reverse penalties
+        if action == Directions.STOP: features['stop'] = 1
+        rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
+        if action == rev: features['reverse'] = 1
                 
 
         return features
@@ -266,10 +304,10 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     
 
         if returning:
-            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8, 'hunt_scared_ghost': 0, 'danger': -2000}
+            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8, 'hunt_scared_ghost': 0, 'danger': -2000, 'stop': -100, 'reverse': -2}
     
         else:
-            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -500}
+            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -500, 'stop': -100, 'reverse': -4 }
     
     
 
@@ -420,11 +458,13 @@ we should safer routes > shorter routes -> Half implemented.
 3.b) IMPORTANT: if the enemy has recently eaten a capsule, do not try and capture him -> IMPLEMENTED
 
 4) last N moves of the game, if we are winning, we should stay home and defend,
-if we are losing, go full attack. -> IMPLEMENTED --> STILL NEEDS ADJUSTMENT -> after capturing food you must return home and avoid the ghosts.
+if we are losing, go full attack. -> IMPLEMENTED 
 
-5) Add STOP + reverse penalties on offense
+5) Add STOP + reverse penalties on offense -> IMPLEMENTED
 
 6) the return-home threshold is static (N = 5), we should make a dynamic one depending on the layout and also If winning: return earlier / play safer, If losing: carry more before returning (take calculated risks). 
+-> IMPLEMENTED
+
 
 7) when a dangerous ghost is close and a capsule is reachable, prefer pathing to a capsule, we convert DANGER -> potential points
 
