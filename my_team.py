@@ -188,19 +188,22 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def _should_return_home(self, game_state, successor):
         # return if carrying more than N dots or if it is dangerous
         # return if we are in the last N moves and are currently winning, or else continue attacking
+        # NEW:  if we are winning, we should stay/go home and defend
+        danger = (min_ghost_distance is not None and min_ghost_distance <= self.danger_dist)
 
         if self._in_endgame(game_state):
             if self._we_are_winning(game_state):
                 return True
-            else:
-                return False
+            if carrying > 0:
+                return True
+            return danger
 
         carrying = game_state.get_agent_state(self.index).num_carrying
         if carrying >= self.carrying_dots:
             return True 
         
         min_ghost_distance = self._min_dist_enemy_ghost(successor)
-        return (min_ghost_distance is not None and min_ghost_distance <= self.danger_dist)
+        return danger
             
             
 
@@ -211,8 +214,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
         my_pos = successor.get_agent_state(self.index).get_position()
+
         returning = self._should_return_home(game_state, successor)
+
         features['successor_score'] = -len(food_list)  # self.get_score(successor)
+
         d = self._min_dist_enemy_ghost(successor)
 
         #NEW: avoid DANGER
@@ -220,9 +226,16 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             features['min_enemy_ghost_distance'] = 10
         else:
             features['min_enemy_ghost_distance'] = min(d, 10)
+
+         # NEW: strongly punish stepping into immediate danger range
+        if d is not None and d <= 1:
+            features['danger'] = 1        
+
         #NEW: if we return, keep the distance to home
         if returning:
             features['distance_to_home'] = self.get_maze_distance(my_pos, self.start) 
+
+
         #NEW: hunt scared ghost when on offense
         my_state = successor.get_agent_state(self.index)
         if my_state.is_pacman:
@@ -253,10 +266,10 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     
 
         if returning:
-            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8, 'hunt_scared_ghost': 0}
+            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8, 'hunt_scared_ghost': 0, 'danger': -2000}
     
         else:
-            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1}
+            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -500}
     
     
 
@@ -381,7 +394,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         winning = self._we_are_winning(game_state)
 
         if endgame and (not winning):
-            return  {'num_invaders': 0, 'on_defense': -50, 'invader_distance': 0, 'succesor_score': 100, 'distance_to_food': -3, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0}
+            return  {'num_invaders': 0, 'on_defense': -50, 'invader_distance': 0, 'successor_score': 100, 'distance_to_food': -3, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0}
 
         #If we are scared, avoid invaders instead of chasing. 
         if my_state.scared_timer > 0:
