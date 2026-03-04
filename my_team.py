@@ -472,4 +472,5 @@ if we are losing, go full attack. -> IMPLEMENTED
 
 8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared?
 
+9) when winning DON'T camp in the spawntube, defending has to be active and at the front
 """
