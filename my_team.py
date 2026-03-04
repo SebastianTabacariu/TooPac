@@ -473,4 +473,12 @@ if we are losing, go full attack. -> IMPLEMENTED
 8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared?
 
 9) when winning DON'T camp in the spawntube, defending has to be active and at the front
+
+10) Instead of returning to spawnpoint when having a lot of dots, return to red boundaries (Yanis will do this)
+
+11) target food-dense spots
+
+12) camp middle boundary in defense
+
+13) team coordination agents can't be close, they will target same things
 """
