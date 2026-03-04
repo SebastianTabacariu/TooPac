@@ -218,9 +218,10 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # return if carrying more than N dots or if it is dangerous
         # return if we are in the last N moves and are currently winning, or else continue attacking
         # NEW:  if we are winning, we should stay/go home and defend
-        danger = (min_ghost_distance is not None and min_ghost_distance <= self.danger_dist)
-        carrying = game_state.get_agent_state(self.index).num_carrying
+        danger_dist = 5
         min_ghost_distance = self._min_dist_enemy_ghost(successor)
+        danger = (min_ghost_distance is not None and min_ghost_distance <= danger_dist)
+        carrying = game_state.get_agent_state(self.index).num_carrying
 
         #NEW
         threshold = self._carry_threshold(game_state)
@@ -459,6 +460,7 @@ we should safer routes > shorter routes -> Half implemented.
 
 4) last N moves of the game, if we are winning, we should stay home and defend,
 if we are losing, go full attack. -> IMPLEMENTED 
+
 
 5) Add STOP + reverse penalties on offense -> IMPLEMENTED
 
