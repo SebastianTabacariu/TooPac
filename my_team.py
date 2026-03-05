@@ -468,7 +468,7 @@ if we are losing, go full attack. -> IMPLEMENTED
 -> IMPLEMENTED
 
 
-7) when a dangerous ghost is close and a capsule is reachable, prefer pathing to a capsule, we convert DANGER -> potential points
+7) when a dangerous ghost is close and a capsule is reachable, prefer pathing to a capsule, we convert DANGER -> potential points  (Samuel doet deze)
 
 8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared?
 
