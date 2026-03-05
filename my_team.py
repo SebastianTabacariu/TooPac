@@ -171,6 +171,17 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         #threshold to carry from layout
         self.base_carry_threshold = max(3, min(9, int(area / 120)))
 
+        if self.red:
+            x_red = (width // 2) - 1
+        else: x_red = width // 2
+
+        self.red_boundaries= []
+
+        for y in range(height):
+            if not walls[x_red][y]:
+                self.red_boundaries.append((x_red,y))
+
+
 
     #NEW:  dynamic carry threshold
     def _carry_threshold(self, game_state):
@@ -268,7 +279,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         #NEW: if we return, keep the distance to home
         if returning:
-            features['distance_to_home'] = self.get_maze_distance(my_pos, self.start) 
+            features['distance_to_home'] = min(self.get_maze_distance(my_pos, b) for b in self.red_boundaries) 
 
 
         #NEW: hunt scared ghost when on offense
@@ -474,7 +485,7 @@ if we are losing, go full attack. -> IMPLEMENTED
 
 9) when winning DON'T camp in the spawntube, defending has to be active and at the front
 
-10) Instead of returning to spawnpoint when having a lot of dots, return to red boundaries (Yanis will do this)
+10) Instead of returning to spawnpoint when having a lot of dots, return to red boundaries -> IMPLEMENTED
 
 11) target food-dense spots
 
