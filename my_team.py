@@ -224,6 +224,23 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         
         return min(self.get_maze_distance(my_pos, danger_ghost) for danger_ghost in ghost_positions)
     
+    #NEW idea 7: distance to the nearest capsule
+    # we use a basic loop to find the minimal distance
+
+    def _min_capsule_distance_(self, game_state, pos):
+        capsules = game_state.get_capsules()
+        if not capsules:
+            return None
+        best = None
+        for c in capsules:
+           d = self.get_maze_distance(pos, c) 
+           if best is None or d < best:
+               best = d
+        return best
+    
+
+
+    
       #NEW
     def _should_return_home(self, game_state, successor):
         # return if carrying more than N dots or if it is dangerous
@@ -231,9 +248,19 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # NEW:  if we are winning, we should stay/go home and defend
         danger_dist = 5
         min_ghost_distance = self._min_dist_enemy_ghost(successor)
+        
         danger = (min_ghost_distance is not None and min_ghost_distance <= danger_dist)
-        carrying = game_state.get_agent_state(self.index).num_carrying
 
+        #New: if danger is close but we are near a capsule, don't retreat
+
+        if danger: 
+            my_pos = successor.get_agent_state(self.index).get_position()
+            cap_dist = self._min_dist_capsule(game_state, my_pos)
+            if cap_dist is not None and cap_dist <= 6: #can be adjusted if necessary
+                danger = False 
+
+        carrying = game_state.get_agent_state(self.index).num_carrying
+        
         #NEW
         threshold = self._carry_threshold(game_state)
 
@@ -275,7 +302,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
          # NEW: strongly punish stepping into immediate danger range
         if d is not None and d <= 1:
-            features['danger'] = 1        
+            features['danger'] = 1
+        # New: if danger is close and capsule is nearby, move to capsule  
+        if d is not None and d <= 5:
+            cap_dist = self._min_capsule_distance_(game_state, my_pos)
+            if cap_dist is not None and cap_dist <= 6:
+                features['distance_to_capsule'] = cap_dist
+        
+
 
         #NEW: if we return, keep the distance to home
         if returning:
@@ -313,17 +347,24 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         successor = self.get_successor(game_state, action)
         # NEW
         returning = self._should_return_home(game_state, successor)
-    
+
 
         if returning:
             return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8, 'hunt_scared_ghost': 0, 'danger': -2000, 'stop': -100, 'reverse': -2}
-    
-        else:
-            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -500, 'stop': -100, 'reverse': -4 }
-    
-    
+        
+        #New: idea 7: if a dangerous ghost is close and a capsule is reachable, prefer the capsule. -> weights updated
+        d = self._min_dist_enemy_ghost(successor)
+        capsule_mode = False
+        if d is not None and d <= 5:
+            my_pos = successor.get_agent_state(self.index).get.position()
+            cap_dist = self._min_capsule_distance_(game_state, my_pos)
+            if cap_dist is not None and cap_dist <= 6:
+                capsule_mode = True
 
-
+        if capsule_mode:
+            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -50, 'distance_to_capsule': -8, 'stop': -100, 'reverse': -4 }
+        
+        return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -500, 'distance_to_capsule': 0, 'stop': -100, 'reverse': -4 }
 
 
 
@@ -479,7 +520,7 @@ if we are losing, go full attack. -> IMPLEMENTED
 -> IMPLEMENTED
 
 
-7) when a dangerous ghost is close and a capsule is reachable, prefer pathing to a capsule, we convert DANGER -> potential points  (Samuel doet deze)
+7) when a dangerous ghost is close and a capsule is reachable, prefer pathing to a capsule, we convert DANGER -> potential points  IMPLEMENTED
 
 8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared?
 
