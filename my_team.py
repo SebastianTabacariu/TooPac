@@ -255,7 +255,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         if danger: 
             my_pos = successor.get_agent_state(self.index).get_position()
-            cap_dist = self._min_dist_capsule(game_state, my_pos)
+            cap_dist = self._min_capsule_distance_(game_state, my_pos)
             if cap_dist is not None and cap_dist <= 6: #can be adjusted if necessary
                 danger = False 
 
@@ -356,7 +356,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         d = self._min_dist_enemy_ghost(successor)
         capsule_mode = False
         if d is not None and d <= 5:
-            my_pos = successor.get_agent_state(self.index).get.position()
+            my_pos = successor.get_agent_state(self.index).get_position()
             cap_dist = self._min_capsule_distance_(game_state, my_pos)
             if cap_dist is not None and cap_dist <= 6:
                 capsule_mode = True
