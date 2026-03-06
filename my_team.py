@@ -386,6 +386,54 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
        # local step counter
         self.step_count = 0
 
+        walls = game_state.get_walls()
+        width, height = walls.width, walls.height
+        self.mid_y = height // 2
+
+        #Home boundary
+        if self.red:
+            boundary_x = (width //2) - 1
+        else:
+            boundary_x = width // 2
+        self.home_boundary = []
+        for y in range(height):
+            if not walls[boundary_x][y]:
+                self.home_boundary.append((boundary_x, y))   
+
+        # places that we precompute to defend when nothing is urgent/visible
+        defended_food = self.get_food_you_are_defending(game_state).as_list()
+        defended_capsules = self.get_capsules_you_are_defending(game_state)
+
+        scored_boundary = []
+        for b in self.home_boundary:
+            score = 0
+
+             #prefer center tiles
+            score += abs(b[1] - self.mid_y)
+
+        # prefer tilesclose to defended food
+        if defended_food:
+            food_dist = min(self.get_maze_distance(b, food) for food in defended_food)
+            score += 2 * food_dist
+
+        # Prefer boundary tiles that are close to defended capsules even more
+        if defended_capsules:
+            cap_dist = min(self.get_maze_distance(b, cap) for cap in defended_capsules)
+            score += 3 * cap_dist
+
+        scored_boundary.append((score, b))
+
+        scored_boundary.sort()
+
+    # Keep only a few best patrol points to reduce noise
+        self.patrol_points = [pos for _, pos in scored_boundary[:3]]
+
+    # Safety fallback
+        if not self.patrol_points:
+            self.patrol_points = list(self.home_boundary)
+
+
+
       #NEW
     def choose_action(self, game_state):
         current_food = self.get_food_you_are_defending(game_state).as_list()
@@ -420,6 +468,49 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         return super().choose_action(game_state)    
     
 
+    def _recent_stolen_food_active(self):
+        recent_stolen_step_count = 5
+        return (
+            self.last_stolen_pos is not None and
+            (self.step_count - self.last_stolen_step) <= recent_stolen_step_count
+    )
+
+
+    def _get_patrol_target(self, game_state):
+
+        defended_food = self.get_food_you_are_defending(game_state).as_list()
+        defended_capsules = self.get_capsules_you_are_defending(game_state)
+
+        best_target = None
+        best_score = float('inf')
+
+        for p in self.patrol_points:
+            score = 0
+
+            #bias towards middle lanes
+            score += abs(p[1] - self.mid_y)
+
+            # stay close to areas we want to defend
+            if defended_food:
+                score += 2 * min(self.get_maze_distance(p,food) for food in defended_food)
+
+            if defended_capsules:
+                score += 3 * min(self.get_maze_distance(p, cap) for cap in defended_capsules)
+
+            # go to recently stolen stuff
+            if self._recent_stolen_food_active:
+                score += 2 * self.get_maze_distance(p, self.last_stolen_pos)
+
+            if score < best_score:
+               best_score = score
+               best_target = p
+
+
+        if best_target is None:
+            return self.start
+
+        return best_target
+                       
 
 
     def get_features(self, game_state, action):
@@ -465,9 +556,14 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
         # New: when invisible invader
         else:   
-            recent_stolen_step_count = 5 #how many steps we care about
-            if (not scared) and self.last_stolen_pos is not None and (self.step_count -self.last_stolen_step) <= recent_stolen_step_count:
+            if (not scared) and self._recent_stolen_food_active():
                 features['stolen_food_distance'] = self.get_maze_distance(my_pos, self.last_stolen_pos)    
+
+            else:
+                patrol_target = self._get_patrol_target(successor)
+                features['distance_to_patrol'] = self.get_maze_distance(my_pos, patrol_target)    
+
+
 
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
@@ -485,14 +581,14 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         winning = self._we_are_winning(game_state)
 
         if endgame and (not winning):
-            return  {'num_invaders': 0, 'on_defense': -50, 'invader_distance': 0, 'successor_score': 100, 'distance_to_food': -3, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0}
+            return  {'num_invaders': 0, 'on_defense': -50, 'invader_distance': 0, 'successor_score': 100, 'distance_to_food': -3, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0, 'distance_to_patrol': 0}
 
         #If we are scared, avoid invaders instead of chasing. 
         if my_state.scared_timer > 0:
-            return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': 10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0}
+            return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': 10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0, 'distance_to_patrol': -8}
         
         #Non scared behaviour, chase invaders and stolen food. 
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -10}
+        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -10,  'distance_to_patrol': -6}
 
 
 
