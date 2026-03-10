@@ -182,6 +182,18 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 self.red_boundaries.append((x_red,y))
 
 
+        self.mid_y = height // 2
+        self.entry_points = sorted(
+            self.red_boundaries,
+            key=lambda p: abs(p[1] - self.mid_y)
+        )[:3]
+
+        if not self.entry_points:
+            self.entry_points = list(self.red_boundaries)
+
+        self.recent_positions = []        
+
+
 
     #NEW:  dynamic carry threshold
     def _carry_threshold(self, game_state):
@@ -198,6 +210,49 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
 
         return max(2, min(12, carry))    
+    
+
+    def choose_action(self, game_state):
+        actions = game_state.get_legal_actions(self.index)
+        values = [self.evaluate(game_state, a) for a in actions]
+
+        max_value = max(values)
+        best_actions = [a for a, v in zip(actions, values) if v == max_value]
+
+        food_left = len(self.get_food(game_state).as_list())
+        current_state = game_state.get_agent_state(self.index)
+
+        if food_left <= 2:
+            best_dist = 9999
+            best_action = None
+            for action in actions:
+                successor = self.get_successor(game_state, action)
+                pos2 = successor.get_agent_position(self.index)
+                dist = self.get_maze_distance(self.start, pos2)
+                if dist < best_dist:
+                    best_action = action
+                    best_dist = dist
+            chosen_action = best_action
+        else:
+            if not current_state.is_pacman:
+                crossing_actions = []
+                for action in best_actions:
+                    successor = self.get_successor(game_state, action)
+                    if successor.get_agent_state(self.index).is_pacman:
+                        crossing_actions.append(action)
+
+                if crossing_actions:
+                    best_actions = crossing_actions
+
+            chosen_action = random.choice(best_actions)
+
+        successor = self.get_successor(game_state, chosen_action)
+        chosen_pos = successor.get_agent_state(self.index).get_position()
+        if chosen_pos is not None:
+            self.recent_positions.append(chosen_pos)
+            self.recent_positions = self.recent_positions[-6:]
+
+        return chosen_action
 
 
 
@@ -205,7 +260,12 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
     def _min_dist_enemy_ghost(self, successor):
 
-        my_pos = successor.get_agent_state(self.index).get_position()
+        my_state = successor.get_agent_state(self.index)
+
+        if not my_state.is_pacman:
+            return None
+        
+        my_pos = my_state.get_position()
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
 
         ghost_positions = []
@@ -228,7 +288,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     # we use a basic loop to find the minimal distance
 
     def _min_capsule_distance_(self, game_state, pos):
-        capsules = game_state.get_capsules()
+        capsules = self.get_capsules(game_state)
         if not capsules:
             return None
         best = None
@@ -246,6 +306,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # return if carrying more than N dots or if it is dangerous
         # return if we are in the last N moves and are currently winning, or else continue attacking
         # NEW:  if we are winning, we should stay/go home and defend
+
+        current_state = game_state.get_agent_state(self.index)
+        current_pos = current_state.get_position()
+        carrying = game_state.get_agent_state(self.index).num_carrying
+        # If we are already on our own side, we should not enter "return home" mode.
+        if not current_state.is_pacman:
+            return False
+
         danger_dist = 5
         min_ghost_distance = self._min_dist_enemy_ghost(successor)
         
@@ -256,13 +324,22 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if danger: 
             my_pos = successor.get_agent_state(self.index).get_position()
             cap_dist = self._min_capsule_distance_(game_state, my_pos)
-            if cap_dist is not None and cap_dist <= 6: #can be adjusted if necessary
+            if cap_dist is not None and cap_dist <= 5: #can be adjusted if necessary
                 danger = False 
 
-        carrying = game_state.get_agent_state(self.index).num_carrying
-        
         #NEW
         threshold = self._carry_threshold(game_state)
+
+        # NEW:
+        # carry a few dots and  VERY close to boundary -> secure the points
+        dist_to_home = min(self.get_maze_distance(current_pos, b) for b in self.red_boundaries)
+        if carrying >= 2 and dist_to_home <= 2:
+            return True
+        
+        #return if there is almost no time left
+        if self._time_left(game_state) <= 100:
+            if (not self._we_are_winning(game_state)) and carrying > 0:
+                return True
 
         if self._in_endgame(game_state):
             if self._we_are_winning(game_state):
@@ -286,7 +363,10 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
-        my_pos = successor.get_agent_state(self.index).get_position()
+        
+        prev_state = game_state.get_agent_state(self.index)
+        my_state = successor.get_agent_state(self.index)
+        my_pos = my_state.get_position()
 
         returning = self._should_return_home(game_state, successor)
 
@@ -303,6 +383,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
          # NEW: strongly punish stepping into immediate danger range
         if d is not None and d <= 1:
             features['danger'] = 1
+
         # New: if danger is close and capsule is nearby, move to capsule  
         if d is not None and d <= 5:
             cap_dist = self._min_capsule_distance_(game_state, my_pos)
@@ -315,9 +396,21 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if returning:
             features['distance_to_home'] = min(self.get_maze_distance(my_pos, b) for b in self.red_boundaries) 
 
+            # big bonus for move that brings points
+            if prev_state.is_pacman and (not my_state.is_pacman) and prev_state.num_carrying >0:
+                features['bank_now'] = 1
+
+
+        #NEW: encourage crossing the border when we are stil on home side and we are not returning
+        if (not returning) and (not my_state.is_pacman) and self.entry_points:
+            features['distance_to_entry'] = min(self.get_maze_distance(my_pos, p) for p in self.entry_points)    
+
+        #NEW: reward when crossing into enemy territory (to encourage this behaviour)
+
+        if (not prev_state.is_pacman) and my_state.is_pacman and (not returning):
+            features['cross_border'] = 1
 
         #NEW: hunt scared ghost when on offense
-        my_state = successor.get_agent_state(self.index)
         if my_state.is_pacman:
             enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
             scared_ghost_positions = []
@@ -335,10 +428,17 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if not returning and  len(food_list) > 0:  # his should always be True,  but better safe than sorry
                 features['distance_to_food'] = min(self.get_maze_distance(my_pos, food) for food in food_list)
 
+        # punish revisiting recent positions
+        if my_pos in self.recent_positions:
+            features['loop_penalty'] = 1
+
        # NEW: STOP + reverse penalties
         if action == Directions.STOP: features['stop'] = 1
+
+
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1
+        if action == rev: 
+            features['reverse'] = 1
                 
 
         return features
@@ -350,7 +450,19 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
 
         if returning:
-            return {'successor_score': 0, 'distance_to_food': 0, 'distance_to_home': -50, 'min_enemy_ghost_distance': 8, 'hunt_scared_ghost': 0, 'danger': -2000, 'stop': -100, 'reverse': -2}
+            return {'successor_score': 0, 
+                    'distance_to_food': 0, 
+                    'distance_to_home': -300,
+                    'distance_to_entry': 0,
+                    'distance_to_capsule': 0, 
+                    'min_enemy_ghost_distance': 1, 
+                    'hunt_scared_ghost': 0, 
+                    'danger': -400, 
+                    'stop': -100, 
+                    'reverse': -20,
+                    'loop_penalty': -100,
+                    'cross_border': 0 ,
+                    'bank_now': 1000}
         
         #New: idea 7: if a dangerous ghost is close and a capsule is reachable, prefer the capsule. -> weights updated
         d = self._min_dist_enemy_ghost(successor)
@@ -362,11 +474,31 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 capsule_mode = True
 
         if capsule_mode:
-            return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -50, 'distance_to_capsule': -8, 'stop': -100, 'reverse': -4 }
+            return {'successor_score': 100, 
+                    'distance_to_food': -10, 
+                    'distance_to_home': 0,
+                    'distance_to_entry': -4,
+                    'distance_to_capsule': -8, 
+                    'min_enemy_ghost_distance': 1, 
+                    'hunt_scared_ghost': 1, 
+                    'danger': -20, 
+                    'stop': -100, 
+                    'reverse': -4,
+                    'loop_penalty': -20,
+                    'cross_border': 25 }
         
-        return {'successor_score': 100, 'distance_to_food': -3, 'distance_to_home': 0, 'min_enemy_ghost_distance': 1, 'hunt_scared_ghost': 1, 'danger': -500, 'distance_to_capsule': 0, 'stop': -100, 'reverse': -4 }
-
-
+        return {'successor_score': 100, 
+                    'distance_to_food': -5, 
+                    'distance_to_home': 0,
+                    'distance_to_entry': -4,
+                    'distance_to_capsule': 0, 
+                    'min_enemy_ghost_distance': 1, 
+                    'hunt_scared_ghost': 1, 
+                    'danger': -500, 
+                    'stop': -100, 
+                    'reverse': -4,
+                    'loop_penalty': -20,
+                    'cross_border': 40 }
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
@@ -412,16 +544,16 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             score += abs(b[1] - self.mid_y)
 
         # prefer tilesclose to defended food
-        if defended_food:
-            food_dist = min(self.get_maze_distance(b, food) for food in defended_food)
-            score += 2 * food_dist
+            if defended_food:
+                food_dist = min(self.get_maze_distance(b, food) for food in defended_food)
+                score += 2 * food_dist
 
         # Prefer boundary tiles that are close to defended capsules even more
-        if defended_capsules:
-            cap_dist = min(self.get_maze_distance(b, cap) for cap in defended_capsules)
-            score += 3 * cap_dist
+            if defended_capsules:
+                cap_dist = min(self.get_maze_distance(b, cap) for cap in defended_capsules)
+                score += 3 * cap_dist
 
-        scored_boundary.append((score, b))
+            scored_boundary.append((score, b))
 
         scored_boundary.sort()
 
@@ -498,7 +630,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                 score += 3 * min(self.get_maze_distance(p, cap) for cap in defended_capsules)
 
             # go to recently stolen stuff
-            if self._recent_stolen_food_active:
+            if self._recent_stolen_food_active() and self.last_stolen_pos is not None:
                 score += 2 * self.get_maze_distance(p, self.last_stolen_pos)
 
             if score < best_score:
@@ -588,7 +720,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': 10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0, 'distance_to_patrol': -8}
         
         #Non scared behaviour, chase invaders and stolen food. 
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -10,  'distance_to_patrol': -6}
+        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -15, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -13,  'distance_to_patrol': -6}
 
 
 
