@@ -60,7 +60,9 @@ class ReflexCaptureAgent(CaptureAgent):
     A base class for reflex agents that choose score-maximizing actions
     """
     # New: Last 'N' moves which we can later change to our preference. The use of this will later be explained in the code.
-    ENDGAME_STEPS = 500
+    ENDGAME_STEPS = 400
+    # New: points needed to score to be comfortable.
+    COMFORTABLE_LEAD = 8
 
     def __init__(self, index, time_for_computing=.1):
         super().__init__(index, time_for_computing)
@@ -149,6 +151,9 @@ class ReflexCaptureAgent(CaptureAgent):
     def _we_are_winning(self, game_state):
         return self.get_score(game_state) > 0
     
+    def _we_are_winning_comfortably(self, game_state):
+        return self.get_score(game_state) >= self.COMFORTABLE_LEAD
+    
 
 
 
@@ -234,7 +239,9 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     best_dist = dist
             chosen_action = best_action
         else:
-            if not current_state.is_pacman:
+            comfortable_endgame = self._in_endgame(game_state) and self._we_are_winning_comfortably(game_state)
+
+            if (not current_state.is_pacman) and (not comfortable_endgame):
                 crossing_actions = []
                 for action in best_actions:
                     successor = self.get_successor(game_state, action)
@@ -330,6 +337,9 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         #NEW
         threshold = self._carry_threshold(game_state)
 
+        if self._in_endgame(game_state) and self._we_are_winning_comfortably(game_state):
+            return True
+
         # NEW:
         # carry a few dots and  VERY close to boundary -> secure the points
         dist_to_home = min(self.get_maze_distance(current_pos, b) for b in self.red_boundaries)
@@ -367,8 +377,46 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         prev_state = game_state.get_agent_state(self.index)
         my_state = successor.get_agent_state(self.index)
         my_pos = my_state.get_position()
+        comfortable_endgame = self._in_endgame(game_state) and self._we_are_winning_comfortably(game_state)
 
         returning = self._should_return_home(game_state, successor)
+
+        if comfortable_endgame:
+    # If we are still in enemy territory, go home immediately.
+            if my_state.is_pacman:
+                features['distance_to_home'] = min(self.get_maze_distance(my_pos, b) for b in self.red_boundaries)
+        
+
+                if prev_state.is_pacman and (not my_state.is_pacman) and prev_state.num_carrying > 0:
+                    features['bank_now'] = 1
+
+    # Once home, become a second defender instead of crossing again.
+            else:
+                features['on_defense'] = 1
+
+                enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+                invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
+
+                features['num_invaders'] = len(invaders)
+
+                if len(invaders) > 0:
+                    dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
+                    features['invader_distance'] = min(dists)
+                else:
+                    features['distance_to_hold'] = min(self.get_maze_distance(my_pos, p) for p in self.entry_points)
+
+            if my_pos in self.recent_positions:
+                features['loop_penalty'] = 1
+
+            if action == Directions.STOP:
+                features['stop'] = 1
+
+            rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
+            if action == rev:
+                features['reverse'] = 1
+
+            return features
+
 
         features['successor_score'] = -len(food_list)  # self.get_score(successor)
 
@@ -447,6 +495,27 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         successor = self.get_successor(game_state, action)
         # NEW
         returning = self._should_return_home(game_state, successor)
+        comfortable_endgame = self._in_endgame(game_state) and self._we_are_winning_comfortably(game_state)
+
+        if comfortable_endgame:
+            return {'successor_score': 0,
+                    'distance_to_food': 0,
+                    'distance_to_home': -300,
+                    'distance_to_entry': 0,
+                    'distance_to_capsule': 0,
+                    'min_enemy_ghost_distance': 0,
+                    'hunt_scared_ghost': 0,
+                    'danger': -400,
+                    'stop': -100,
+                    'reverse': -20,
+                    'loop_penalty': -100,
+                    'cross_border': 0,
+                    'bank_now': 1000,
+                    'on_defense': 100,
+                    'num_invaders': -1200,
+                    'invader_distance': -20,
+                    'distance_to_hold': -10}
+        
 
 
         if returning:
