@@ -177,6 +177,48 @@ class ReflexCaptureAgent(CaptureAgent):
             return None
         
         return self.get_maze_distance(my_pos, teammate_pos)
+    
+        # 
+    def _open_neighbors_count(self, game_state, pos):
+        if pos is None:
+            return 0
+
+        x, y = int(pos[0]), int(pos[1])
+        walls = game_state.get_walls()
+        count = 0
+
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < walls.width and 0 <= ny < walls.height and not walls[nx][ny]:
+                count += 1
+
+        return count
+
+
+    def _is_tight_space(self, game_state, pos):
+    # corridor (2 exits), dead-end (1), corner pocket, ...
+        return self._open_neighbors_count(game_state, pos) <= 2
+
+
+    def _teammate_spacing_penalty(self, game_state, my_pos, desired_dist=5):
+        teammate = self._get_teammate_index(game_state)
+        if teammate is None or my_pos is None:
+            return 0
+
+        teammate_pos = game_state.get_agent_position(teammate)
+        if teammate_pos is None:
+            return 0
+
+    # do not force separation.
+    # Agents sometimes need to queue behind each other to escape.
+        if self._is_tight_space(game_state, my_pos):
+            return 0
+        if self._is_tight_space(game_state, teammate_pos):
+            return 0
+
+        teammate_dist = self.get_maze_distance(my_pos, teammate_pos)
+        return max(0, desired_dist - teammate_dist)
+
 
 
 
@@ -432,11 +474,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             if my_pos in self.recent_positions:
                 features['loop_penalty'] = 1
 
-            #New: idea 13, checks how far the offensive agent would be from his teammate after taking this action
+            #New: idea 13, checks how far the offensive agent would be from his teammate after taking this action and give a penalty
 
-            teammate_dist = self._dist_to_teammate(successor, my_pos)
-            if teammate_dist is not None and teammate_dist <= 2:
-                features['team_too_close'] = 1
+            # Only spread out once we are already home and defending.
+            # If still Pacman in endgame, getting home matters more than spacing.
+            if not my_state.is_pacman:
+                spacing_penalty = self._teammate_spacing_penalty(successor, my_pos, desired_dist=4)
+                if spacing_penalty > 0:
+                    features['team_spacing_penalty'] = spacing_penalty
 
             if action == Directions.STOP:
                 features['stop'] = 1
@@ -513,9 +558,13 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         #idea 13, same principle as above
 
-        teammate_dist = self._dist_to_teammate(successor, my_pos) 
-        if teammate_dist is not None and teammate_dist <= 2:
-            features['team_too_close'] = 1
+        # Do not apply spacing while escaping / returning / in immediate danger.
+        apply_spacing = (not returning) and (d is None or d > 2)
+
+        if apply_spacing:
+            spacing_penalty = self._teammate_spacing_penalty(successor, my_pos, desired_dist=4)
+            if spacing_penalty > 0:
+                features['team_spacing_penalty'] = spacing_penalty
 
 
        # NEW: STOP + reverse penalties
@@ -547,7 +596,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100,
                     'reverse': -20,
                     'loop_penalty': -100,
-                    'team_too_close': -80,
+                    'team_spacing_penalty': -10,
                     'cross_border': 0,
                     'bank_now': 1000,
                     'on_defense': 100,
@@ -569,7 +618,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100, 
                     'reverse': -20,
                     'loop_penalty': -100,
-                    'team_too_close': -80,
+                    'team_spacing_penalty': 0,
                     'cross_border': 0 ,
                     'bank_now': 1000}
         
@@ -594,7 +643,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100, 
                     'reverse': -4,
                     'loop_penalty': -20,
-                    'team_too_close': -80,
+                    'team_spacing_penalty': 0,
                     'cross_border': 25 }
         
         return {'successor_score': 100, 
@@ -608,7 +657,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100, 
                     'reverse': -4,
                     'loop_penalty': -20,
-                    'team_too_close': -80,
+                    'team_spacing_penalty': -12,
                     'cross_border': 40 }
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
@@ -808,9 +857,12 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
         #idea 13, same as with the offensive agent
         
-        teammate_dist = self._dist_to_teammate(successor, my_pos)
-        if teammate_dist is not None and teammate_dist <= 2:
-            features['team_too_close'] = 1
+       # Use spacing only during calm patroling.
+        # If there is an urgent target, both defenders may come together.
+        if len(invaders) == 0 and (not scared) and (not self._recent_stolen_food_active()):
+            spacing_penalty = self._teammate_spacing_penalty(successor, my_pos, desired_dist=4)
+            if spacing_penalty > 0:
+                features['team_spacing_penalty'] = spacing_penalty
 
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
@@ -836,7 +888,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                      'stop': -100, 'reverse': -2, 
                      'stolen_food_distance': 0, 
                      'distance_to_patrol': 0,
-                     'team_too_close': -40}
+                     'team_spacing_penalty': 0}
 
         #If we are scared, avoid invaders instead of chasing. 
         if my_state.scared_timer > 0:
@@ -847,7 +899,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                     'reverse': -2, 
                     'stolen_food_distance': 0, 
                     'distance_to_patrol': -8,
-                    'team_too_close': -40}
+                    'team_spacing_penalty': 0}
         
         #Non scared behaviour, chase invaders and stolen food. 
         return {'num_invaders': -1000, 
@@ -857,7 +909,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                 'reverse': -2, 
                 'stolen_food_distance': -13,  
                 'distance_to_patrol': -6,
-                'team_too_close': -40}
+                'team_spacing_penalty': -10}
 
 
 
