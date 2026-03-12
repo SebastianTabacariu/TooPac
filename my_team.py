@@ -154,6 +154,30 @@ class ReflexCaptureAgent(CaptureAgent):
     def _we_are_winning_comfortably(self, game_state):
         return self.get_score(game_state) >= self.COMFORTABLE_LEAD
     
+    #New: idea 13
+
+    def _get_teammate_index(self, game_state):   # funtion to find the idex of teammate
+        if self.red:
+            team = game_state.get_red_team_indices()
+        else: 
+            team = game_state.get_blue_team_indices()
+        
+        for i in team: 
+            if i != self.index:
+                return i
+        return None  # fallback just in case
+    
+    def _dist_to_teammate(self, game_state, my_pos):  #function to find the maze distance between the agent and its teammate
+        teammate = self._get_teammate_index(game_state)
+        if teammate is None or my_pos is None: 
+            return None
+        
+        teammate_pos = game_state.get_agent_position(teammate)
+        if teammate_pos is None:
+            return None
+        
+        return self.get_maze_distance(my_pos, teammate_pos)
+
 
 
 
@@ -408,6 +432,12 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             if my_pos in self.recent_positions:
                 features['loop_penalty'] = 1
 
+            #New: idea 13, checks how far the offensive agent would be from his teammate after taking this action
+
+            teammate_dist = self._dist_to_teammate(successor, my_pos)
+            if teammate_dist is not None and teammate_dist <= 2:
+                features['team_too_close'] = 1
+
             if action == Directions.STOP:
                 features['stop'] = 1
 
@@ -458,6 +488,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if (not prev_state.is_pacman) and my_state.is_pacman and (not returning):
             features['cross_border'] = 1
 
+
         #NEW: hunt scared ghost when on offense
         if my_state.is_pacman:
             enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
@@ -479,6 +510,13 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # punish revisiting recent positions
         if my_pos in self.recent_positions:
             features['loop_penalty'] = 1
+
+        #idea 13, same principle as above
+
+        teammate_dist = self._dist_to_teammate(successor, my_pos) 
+        if teammate_dist is not None and teammate_dist <= 2:
+            features['team_too_close'] = 1
+
 
        # NEW: STOP + reverse penalties
         if action == Directions.STOP: features['stop'] = 1
@@ -509,6 +547,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100,
                     'reverse': -20,
                     'loop_penalty': -100,
+                    'team_too_close': -80,
                     'cross_border': 0,
                     'bank_now': 1000,
                     'on_defense': 100,
@@ -530,6 +569,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100, 
                     'reverse': -20,
                     'loop_penalty': -100,
+                    'team_too_close': -80,
                     'cross_border': 0 ,
                     'bank_now': 1000}
         
@@ -554,6 +594,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100, 
                     'reverse': -4,
                     'loop_penalty': -20,
+                    'team_too_close': -80,
                     'cross_border': 25 }
         
         return {'successor_score': 100, 
@@ -567,6 +608,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'stop': -100, 
                     'reverse': -4,
                     'loop_penalty': -20,
+                    'team_too_close': -80,
                     'cross_border': 40 }
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
@@ -764,7 +806,11 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                 patrol_target = self._get_patrol_target(successor)
                 features['distance_to_patrol'] = self.get_maze_distance(my_pos, patrol_target)    
 
-
+        #idea 13, same as with the offensive agent
+        
+        teammate_dist = self._dist_to_teammate(successor, my_pos)
+        if teammate_dist is not None and teammate_dist <= 2:
+            features['team_too_close'] = 1
 
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
@@ -782,14 +828,36 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         winning = self._we_are_winning(game_state)
 
         if endgame and (not winning):
-            return  {'num_invaders': 0, 'on_defense': -50, 'invader_distance': 0, 'successor_score': 100, 'distance_to_food': -3, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0, 'distance_to_patrol': 0}
+            return  {'num_invaders': 0, 
+                     'on_defense': -50, 
+                     'invader_distance': 0, 
+                     'successor_score': 100,
+                     'distance_to_food': -3, 
+                     'stop': -100, 'reverse': -2, 
+                     'stolen_food_distance': 0, 
+                     'distance_to_patrol': 0,
+                     'team_too_close': -40}
 
         #If we are scared, avoid invaders instead of chasing. 
         if my_state.scared_timer > 0:
-            return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': 10, 'stop': -100, 'reverse': -2, 'stolen_food_distance': 0, 'distance_to_patrol': -8}
+            return {'num_invaders': -1000, 
+                    'on_defense': 100, 
+                    'invader_distance': 10, 
+                    'stop': -100, 
+                    'reverse': -2, 
+                    'stolen_food_distance': 0, 
+                    'distance_to_patrol': -8,
+                    'team_too_close': -40}
         
         #Non scared behaviour, chase invaders and stolen food. 
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -15, 'stop': -100, 'reverse': -2, 'stolen_food_distance': -13,  'distance_to_patrol': -6}
+        return {'num_invaders': -1000, 
+                'on_defense': 100, 
+                'invader_distance': -15, 
+                'stop': -100, 
+                'reverse': -2, 
+                'stolen_food_distance': -13,  
+                'distance_to_patrol': -6,
+                'team_too_close': -40}
 
 
 
@@ -829,5 +897,5 @@ if we are losing, go full attack. -> IMPLEMENTED
 
 12) camp middle boundary in defense
 
-13) team coordination agents can't be close, they will target same things
+13) team coordination agents can't be close, they will target same things 
 """
