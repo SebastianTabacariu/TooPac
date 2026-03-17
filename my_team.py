@@ -63,6 +63,8 @@ class ReflexCaptureAgent(CaptureAgent):
     ENDGAME_STEPS = 400
     # New: points needed to score to be comfortable.
     COMFORTABLE_LEAD = 8
+    # desired sitance between the two teammates.
+    DESIRED_DISTANCE = 4
 
     def __init__(self, index, time_for_computing=.1):
         super().__init__(index, time_for_computing)
@@ -199,8 +201,8 @@ class ReflexCaptureAgent(CaptureAgent):
     # corridor (2 exits), dead-end (1), corner pocket, ...
         return self._open_neighbors_count(game_state, pos) <= 2
 
-
-    def _teammate_spacing_penalty(self, game_state, my_pos, desired_dist=5):
+      
+    def _teammate_spacing_penalty(self, game_state, my_pos):
         teammate = self._get_teammate_index(game_state)
         if teammate is None or my_pos is None:
             return 0
@@ -217,7 +219,7 @@ class ReflexCaptureAgent(CaptureAgent):
             return 0
 
         teammate_dist = self.get_maze_distance(my_pos, teammate_pos)
-        return max(0, desired_dist - teammate_dist)
+        return max(0, self.DESIRED_DISTANCE - teammate_dist)
 
 
 
@@ -479,7 +481,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             # Only spread out once we are already home and defending.
             # If still Pacman in endgame, getting home matters more than spacing.
             if not my_state.is_pacman:
-                spacing_penalty = self._teammate_spacing_penalty(successor, my_pos, desired_dist=4)
+                spacing_penalty = self._teammate_spacing_penalty(successor, my_pos)
                 if spacing_penalty > 0:
                     features['team_spacing_penalty'] = spacing_penalty
 
@@ -562,7 +564,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         apply_spacing = (not returning) and (d is None or d > 2)
 
         if apply_spacing:
-            spacing_penalty = self._teammate_spacing_penalty(successor, my_pos, desired_dist=4)
+            spacing_penalty = self._teammate_spacing_penalty(successor, my_pos)
             if spacing_penalty > 0:
                 features['team_spacing_penalty'] = spacing_penalty
 
@@ -860,7 +862,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
        # Use spacing only during calm patroling.
         # If there is an urgent target, both defenders may come together.
         if len(invaders) == 0 and (not scared) and (not self._recent_stolen_food_active()):
-            spacing_penalty = self._teammate_spacing_penalty(successor, my_pos, desired_dist=4)
+            spacing_penalty = self._teammate_spacing_penalty(successor, my_pos)
             if spacing_penalty > 0:
                 features['team_spacing_penalty'] = spacing_penalty
 
@@ -941,13 +943,13 @@ if we are losing, go full attack. -> IMPLEMENTED
 
 8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared?
 
-9) when winning DON'T camp in the spawntube, defending has to be active and at the front
+9) when winning DON'T camp in the spawntube, defending has to be active and at the front -> IMPLEMENTED
 
 10) Instead of returning to spawnpoint when having a lot of dots, return to red boundaries -> IMPLEMENTED
 
 11) target food-dense spots
 
-12) camp middle boundary in defense
+12) camp middle boundary in defense -> Implemented
 
-13) team coordination agents can't be close, they will target same things 
+13) team coordination agents can't be close, they will target same things -> Implemented
 """
