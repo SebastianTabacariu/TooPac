@@ -509,6 +509,10 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if d is not None and d <= 1:
             features['danger'] = 1
 
+            if my_state.is_pacman and d is not None and d <= 4:
+                if self._is_tight_space(successor, my_pos):
+                    features['risk _trap']= 1
+
         # New: if danger is close and capsule is nearby, move to capsule  
         if d is not None and d <= 5:
             cap_dist = self._min_capsule_distance_(game_state, my_pos)
@@ -604,7 +608,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'on_defense': 100,
                     'num_invaders': -1200,
                     'invader_distance': -20,
-                    'distance_to_hold': -10}
+                    'distance_to_hold': -10,
+                    'risk_trap': -300}
         
 
 
@@ -622,7 +627,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'loop_penalty': -100,
                     'team_spacing_penalty': 0,
                     'cross_border': 0 ,
-                    'bank_now': 1000}
+                    'bank_now': 1000,
+                    'risk_trap': -300}
         
         #New: idea 7: if a dangerous ghost is close and a capsule is reachable, prefer the capsule. -> weights updated
         d = self._min_dist_enemy_ghost(successor)
@@ -646,7 +652,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'reverse': -4,
                     'loop_penalty': -20,
                     'team_spacing_penalty': 0,
-                    'cross_border': 25 }
+                    'cross_border': 25,
+                    'risk_trap': -150 }
         
         return {'successor_score': 100, 
                     'distance_to_food': -5, 
@@ -660,7 +667,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     'reverse': -4,
                     'loop_penalty': -20,
                     'team_spacing_penalty': -12,
-                    'cross_border': 40 }
+                    'cross_border': 40,
+                    'risk_trap': -300 }
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
