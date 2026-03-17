@@ -8,12 +8,13 @@ In `my_team.py` werd(en) de klasse(n) geïmplementeerd waarmee een team van twee
 ### Studiedeel
 - **Opleiding:** [Bachelor in de artificiële intelligentie](https://caliweb.vub.be/?page=program&id=00721)
 - **Studiedeel:** [AI Programmeerproject](https://caliweb.vub.be/?page=course-offers&id=011970)
-- **Academiejaar:** _[academiejaar]_
+- **Academiejaar:** _[2025-2026]_
 - **Onderwijsteam:** Lynn Houthuys, Arno Temmerman
 
 ### Groepsleden
-- Student 1 Naam - e-mail - Github id
-- Student 2 Naam - e-mail - Github id
+- Student 1 Sebastian Tabacariu - Sebastian.Tabacariu@vub.be - 211374228
+- Student 2 Samuel Vereeken - Samuel.Vereeken@vub.be - GitHub ID
+- Sudent 3 Yanis Haider - Yanis.Haider@vub.be - GitHub ID
 
 
 ## 📚 Documentatie
