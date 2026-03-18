@@ -594,7 +594,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
             if my_state.is_pacman and d is not None and d <= 4:
                 if self._is_tight_space(successor, my_pos):
-                    features['risk _trap']= 1
+                    features['risk_trap']= 1
 
         # New: if danger is close and capsule is nearby, move to capsule  
         if d is not None and d <= 5:
@@ -1099,7 +1099,7 @@ if we are losing, go full attack. -> IMPLEMENTED
 
 7) when a dangerous ghost is close and a capsule is reachable, prefer pathing to a capsule, we convert DANGER -> potential points  IMPLEMENTED
 
-8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared?
+8) avoid dead-end situations especially when an unscared ghost is nearby. Maybe even encourage a dead-end situation if the opponents are scared? IMPLEMENTED
 
 9) when winning DON'T camp in the spawntube, defending has to be active and at the front -> IMPLEMENTED
 
