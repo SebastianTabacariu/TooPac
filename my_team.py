@@ -65,6 +65,8 @@ class ReflexCaptureAgent(CaptureAgent):
     COMFORTABLE_LEAD = 8
     # desired sitance between the two teammates.
     DESIRED_DISTANCE = 4
+    # Idea 14: timeleft threshold that separates Phase 1 (defense) from Phase 2 (attack).
+    PHASE_TRIGGER = 300
 
     def __init__(self, index, time_for_computing=.1):
         super().__init__(index, time_for_computing)
@@ -155,7 +157,11 @@ class ReflexCaptureAgent(CaptureAgent):
     
     def _we_are_winning_comfortably(self, game_state):
         return self.get_score(game_state) >= self.COMFORTABLE_LEAD
-    
+
+    # Idea 14: True once the phase transition fires (timeleft <= PHASE_TRIGGER).
+    def _in_late_game(self, game_state):
+        return self._time_left(game_state) <= self.PHASE_TRIGGER
+
     #New: idea 13
 
     def _get_teammate_index(self, game_state):   # funtion to find the idex of teammate
@@ -264,7 +270,21 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if not self.entry_points:
             self.entry_points = list(self.red_boundaries)
 
-        self.recent_positions = []        
+        self.recent_positions = []
+
+        # Idea 14 : patrol points on the boundary, biased toward center.
+        self.border_patrol_points = sorted(
+            self.red_boundaries,
+            key=lambda p: abs(p[1] - self.mid_y)
+        )[:4]
+        if not self.border_patrol_points:
+            self.border_patrol_points = list(self.red_boundaries)
+
+        # Track stolen food for Phase 1 sentinel reactions.
+        self.prev_defended_food_off = self.get_food_you_are_defending(game_state).as_list()
+        self.last_stolen_pos_off = None
+        self.last_stolen_step_off = -float('inf')
+        self.step_count_off = 0
 
 
 
@@ -282,10 +302,27 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             carry += 2
 
 
-        return max(2, min(12, carry))    
-    
+        return max(2, min(12, carry))
+
+    def _recent_stolen_food_active_off(self):
+        # Idea 14: used in Phase 1 border-sentinel mode.
+        return (self.last_stolen_pos_off is not None and
+                (self.step_count_off - self.last_stolen_step_off) <= 5)
 
     def choose_action(self, game_state):
+        # Idea 14: track stolen food so Phase 1 (border sentinel) can react.
+        current_food = self.get_food_you_are_defending(game_state).as_list()
+        missing = set(self.prev_defended_food_off) - set(current_food)
+        if missing:
+            my_pos = game_state.get_agent_state(self.index).get_position()
+            if my_pos is not None:
+                self.last_stolen_pos_off = min(missing, key=lambda m: self.get_maze_distance(my_pos, m))
+            else:
+                self.last_stolen_pos_off = next(iter(missing))
+            self.last_stolen_step_off = self.step_count_off
+        self.prev_defended_food_off = current_food
+        self.step_count_off += 1
+
         actions = game_state.get_legal_actions(self.index)
         values = [self.evaluate(game_state, a) for a in actions]
 
@@ -309,7 +346,9 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         else:
             comfortable_endgame = self._in_endgame(game_state) and self._we_are_winning_comfortably(game_state)
 
-            if (not current_state.is_pacman) and (not comfortable_endgame):
+            # Idea 14: only cross into enemy territory in Phase 2 .
+            in_late = self._in_late_game(game_state)
+            if (not current_state.is_pacman) and (not comfortable_endgame) and in_late:
                 crossing_actions = []
                 for action in best_actions:
                     successor = self.get_successor(game_state, action)
@@ -438,10 +477,54 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
     def get_features(self, game_state, action):
         features = util.Counter()
-        
+
+        # Idea 14 – Phase 1: act as border sentinel.
+        if not self._in_late_game(game_state):
+            successor = self.get_successor(game_state, action)
+            my_state = successor.get_agent_state(self.index)
+            my_pos = my_state.get_position()
+            scared = (my_state.scared_timer > 0)
+
+            features['on_defense'] = 1
+            if my_state.is_pacman:
+                features['on_defense'] = 0
+
+            enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+            invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
+            features['num_invaders'] = len(invaders)
+
+            if len(invaders) > 0 and not scared:
+                dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
+                features['invader_distance'] = min(dists)
+            elif len(invaders) > 0 and scared:
+                # Scared: back away so enemy cannot eat us.
+                dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
+                features['invader_distance'] = -min(dists)
+            else:
+                # No visible invaders: patrol boundary or chase stolen food.
+                if not scared and self._recent_stolen_food_active_off():
+                    features['stolen_food_distance'] = self.get_maze_distance(
+                        my_pos, self.last_stolen_pos_off)
+                else:
+                    features['distance_to_patrol'] = min(
+                        self.get_maze_distance(my_pos, p) for p in self.border_patrol_points)
+
+            if len(invaders) == 0 and not scared and not self._recent_stolen_food_active_off():
+                spacing = self._teammate_spacing_penalty(successor, my_pos)
+                if spacing > 0:
+                    features['team_spacing_penalty'] = spacing
+
+            if action == Directions.STOP:
+                features['stop'] = 1
+            rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
+            if action == rev:
+                features['reverse'] = 1
+            return features
+
+        # Phase 2: late game.
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
-        
+
         prev_state = game_state.get_agent_state(self.index)
         my_state = successor.get_agent_state(self.index)
         my_pos = my_state.get_position()
@@ -581,6 +664,19 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         return features
 
     def get_weights(self, game_state, action):
+        # Idea 14 – Phase 1: border sentinel weights.
+        if not self._in_late_game(game_state):
+            successor = self.get_successor(game_state, action)
+            my_state = successor.get_agent_state(self.index)
+            if my_state.scared_timer > 0:
+                return {'on_defense': 100, 'num_invaders': -1000, 'invader_distance': 10,
+                        'stolen_food_distance': 0, 'distance_to_patrol': -8,
+                        'team_spacing_penalty': 0, 'stop': -100, 'reverse': -2}
+            return {'on_defense': 100, 'num_invaders': -1000, 'invader_distance': -15,
+                    'stolen_food_distance': -13, 'distance_to_patrol': -8,
+                    'team_spacing_penalty': -10, 'stop': -100, 'reverse': -2}
+
+        # Phase 2: late game,  existing attack weights.
         successor = self.get_successor(game_state, action)
         # NEW
         returning = self._should_return_home(game_state, successor)
@@ -726,6 +822,35 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         if not self.patrol_points:
             self.patrol_points = list(self.home_boundary)
 
+        # Idea 14 (Phase 1 – camp defender): precompute patrol points 3-5 tiles behind the border.
+        if self.red:
+            camp_x_range = range(max(1, boundary_x - 5), boundary_x)
+        else:
+            camp_x_range = range(boundary_x + 1, min(width - 1, boundary_x + 6))
+
+        camp_candidates = []
+        for x in camp_x_range:
+            for y in range(height):
+                if not walls[x][y]:
+                    score = abs(y - self.mid_y)
+                    camp_candidates.append((score, (x, y)))
+        camp_candidates.sort()
+
+        # re-score top candidates by proximity to defended food/capsules.
+        scored_camp = []
+        for _, pos in camp_candidates[:15]:
+            score = abs(pos[1] - self.mid_y)
+            if defended_food:
+                score += 2 * min(self.get_maze_distance(pos, f) for f in defended_food)
+            if defended_capsules:
+                score += 3 * min(self.get_maze_distance(pos, c) for c in defended_capsules)
+            scored_camp.append((score, pos))
+        scored_camp.sort()
+        self.camp_patrol_points = [p for _, p in scored_camp[:3]]
+
+        if not self.camp_patrol_points:
+            self.camp_patrol_points = [self.start]
+
 
 
       #NEW
@@ -769,6 +894,27 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             (self.step_count - self.last_stolen_step) <= recent_stolen_step_count
     )
 
+
+    ## Idea 14: pick best interior patrol target for Phase 1 (camp defender).
+    def _get_camp_patrol_target(self, game_state):
+        defended_food = self.get_food_you_are_defending(game_state).as_list()
+        defended_capsules = self.get_capsules_you_are_defending(game_state)
+        best_target = None
+        best_score = float('inf')
+
+        for p in self.camp_patrol_points:
+            score = abs(p[1] - self.mid_y)
+            if defended_food:
+                score += 2 * min(self.get_maze_distance(p, f) for f in defended_food)
+            if defended_capsules:
+                score += 3 * min(self.get_maze_distance(p, c) for c in defended_capsules)
+            if self._recent_stolen_food_active() and self.last_stolen_pos is not None:
+                score += 2 * self.get_maze_distance(p, self.last_stolen_pos)
+            if score < best_score:
+                best_score = score
+                best_target = p
+
+        return best_target if best_target else self.start
 
     def _get_patrol_target(self, game_state):
 
@@ -849,13 +995,17 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             features['invader_distance'] = min(dists)
 
         # New: when invisible invader
-        else:   
+        else:
             if (not scared) and self._recent_stolen_food_active():
-                features['stolen_food_distance'] = self.get_maze_distance(my_pos, self.last_stolen_pos)    
+                features['stolen_food_distance'] = self.get_maze_distance(my_pos, self.last_stolen_pos)
 
             else:
-                patrol_target = self._get_patrol_target(successor)
-                features['distance_to_patrol'] = self.get_maze_distance(my_pos, patrol_target)    
+                # Idea 14: Phase 1 = roam camp interior; Phase 2 = patrol boundary.
+                if not self._in_late_game(game_state):
+                    patrol_target = self._get_camp_patrol_target(game_state)
+                else:
+                    patrol_target = self._get_patrol_target(successor)
+                features['distance_to_patrol'] = self.get_maze_distance(my_pos, patrol_target)
 
         #idea 13, same as with the offensive agent
         
@@ -952,4 +1102,16 @@ if we are losing, go full attack. -> IMPLEMENTED
 12) camp middle boundary in defense -> Implemented
 
 13) team coordination agents can't be close, they will target same things -> Implemented
+
+14) Two-phase role strategy (timeleft trigger = 300) -> IMPLEMENTED
+  Phase 1 (timeleft > 300):
+    - OffensiveReflexAgent acts as BORDER SENTINEL: patrols home boundary,
+      chases enemies that cross, reacts to stolen food and does NOT attack.
+    - DefensiveReflexAgent acts as CAMP DEFENDER: walks in the interior of our
+      territory (3-5 tiles behind boundary) protecting food clusters.
+  Phase 2 (timeleft <= 300):
+    - OffensiveReflexAgent switches to SAFE ATTACKER: crosses border,
+      grabs a few dots, returns home quickly. Avoids ghosts aggressively.
+    - DefensiveReflexAgent switches to BORDER PATROL: moves to boundary
+      line (existing patrol_points), intercepts remaining enemy attacks.
 """
