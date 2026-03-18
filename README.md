@@ -13,8 +13,8 @@ In `my_team.py` werd(en) de klasse(n) geïmplementeerd waarmee een team van twee
 
 ### Groepsleden
 - Student 1 Sebastian Tabacariu - Sebastian.Tabacariu@vub.be - 211374228
-- Student 2 Samuel Vereeken - Samuel.Vereeken@vub.be - GitHub ID
-- Sudent 3 Yanis Haider - Yanis.Haider@vub.be - GitHub ID
+- Student 2 Samuel Vereeken - Samuel.Vereeken@vub.be - 260620059
+- Sudent 3 Yanis Haider - Yanis.Haider@vub.be - 260634792
 
 
 ## 📚 Documentatie
