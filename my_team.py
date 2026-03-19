@@ -25,7 +25,7 @@ import util
 
 from capture_agents import CaptureAgent
 from game import Directions
-from util import nearest_point
+from util import nearest_point, manhattan_distance
 
 
 #################
@@ -75,12 +75,226 @@ class ReflexCaptureAgent(CaptureAgent):
     def register_initial_state(self, game_state):
         self.start = game_state.get_agent_position(self.index)
         CaptureAgent.register_initial_state(self, game_state)
+
+        # ── Belief Tracking System ──
+        # Precompute all legal (non-wall) positions on the map.
+        # Used to estimate where invisible enemies are based on noisy distance readings.
+        walls = game_state.get_walls()
+        self.legal_positions = []
+        for x in range(walls.width):
+            for y in range(walls.height):
+                if not walls[x][y]:
+                    self.legal_positions.append((x, y))
+
+        # Fast lookup set for neighbor expansion in belief updates.
+        self._legal_set = set(self.legal_positions)
+
+        # Initialize belief distributions for each opponent.
+        # Each opponent starts at their known spawn position.
+        self.enemy_beliefs = {}
+        for opp in self.get_opponents(game_state):
+            spawn = game_state.get_initial_agent_position(opp)
+            # Start with certainty: enemy is at spawn.
+            self.enemy_beliefs[opp] = [spawn]
      
+
+    def _update_beliefs(self, game_state):
+        """
+        Update belief distributions for each opponent using:
+        1. Exact position if the enemy is visible (within Manhattan distance 5).
+        2. Noisy distance readings to narrow down possible positions.
+        3. Food disappearance to pin enemy location (very high confidence).
+
+        Called at the start of every choose_action to keep beliefs fresh.
+        """
+        my_pos = game_state.get_agent_state(self.index).get_position()
+        noisy_distances = game_state.get_agent_distances()
+
+        # ── Detect enemy respawn (death) — reset belief to spawn position ──
+        # If an enemy was recently visible as pacman and now suddenly invisible
+        # with a large noisy distance, they likely got eaten and respawned.
+        for opp in self.get_opponents(game_state):
+            opp_state = game_state.get_agent_state(opp)
+            prev_beliefs = self.enemy_beliefs.get(opp, [])
+            # If enemy was previously pinned to a small area and now has a
+            # large noisy distance, they probably respawned.
+            if len(prev_beliefs) <= 5 and game_state.get_agent_position(opp) is None:
+                noisy_d = noisy_distances[opp]
+                # Estimate: if previous belief centroid was close but noisy distance is big, respawn.
+                if prev_beliefs:
+                    avg_x = sum(p[0] for p in prev_beliefs) / len(prev_beliefs)
+                    avg_y = sum(p[1] for p in prev_beliefs) / len(prev_beliefs)
+                    prev_est_dist = manhattan_distance(my_pos, (avg_x, avg_y))
+                    if noisy_d > prev_est_dist + 8:
+                        spawn = game_state.get_initial_agent_position(opp)
+                        self.enemy_beliefs[opp] = [spawn]
+
+        # ── Detect food disappearance to pin enemy positions ──
+        # If our defended food just disappeared, an enemy must be at that position.
+        # Pin the closest invisible enemy's belief to near that position.
+        current_defended = set(self.get_food_you_are_defending(game_state).as_list())
+        if hasattr(self, '_prev_belief_food'):
+            missing_food = self._prev_belief_food - current_defended
+        else:
+            missing_food = set()
+        self._prev_belief_food = current_defended
+
+        # For each missing food, find which invisible opponent is most likely there.
+        food_pinned_opponents = set()
+        for food_pos in missing_food:
+            best_opp = None
+            best_dist = float('inf')
+            for opp in self.get_opponents(game_state):
+                if game_state.get_agent_position(opp) is not None:
+                    continue  # Visible — already known.
+                if opp in food_pinned_opponents:
+                    continue  # Already pinned by another missing food.
+                # Pick opponent whose belief is closest to the missing food.
+                for bpos in self.enemy_beliefs.get(opp, []):
+                    d = manhattan_distance(bpos, food_pos)
+                    if d < best_dist:
+                        best_dist = d
+                        best_opp = opp
+            if best_opp is not None:
+                # Pin this opponent's belief to positions near the food (within 2 steps).
+                pinned = [pos for pos in self.legal_positions
+                          if manhattan_distance(pos, food_pos) <= 2]
+                if pinned:
+                    self.enemy_beliefs[best_opp] = pinned
+                    food_pinned_opponents.add(best_opp)
+
+        for opp in self.get_opponents(game_state):
+            # Skip opponents already pinned by food disappearance this turn.
+            if opp in food_pinned_opponents:
+                continue
+
+            exact_pos = game_state.get_agent_position(opp)
+
+            # Case 1: Enemy is visible — collapse belief to exact position.
+            if exact_pos is not None:
+                self.enemy_beliefs[opp] = [exact_pos]
+                continue
+
+            # Case 2: Enemy is invisible — filter possible positions using noisy distance.
+            noisy_dist = noisy_distances[opp]
+            # Noisy reading = true manhattan distance + noise, where noise is in [-6, 6].
+            # So true distance is in [noisy_dist - 6, noisy_dist + 6].
+            low = max(0, noisy_dist - 6)
+            high = noisy_dist + 6
+
+            # Start from previous belief positions; expand with neighbors for movement.
+            prev_positions = self.enemy_beliefs.get(opp, self.legal_positions)
+
+            # Expand: enemy could have moved 1 step in any direction from any previous position.
+            expanded = set()
+            for pos in prev_positions:
+                expanded.add(pos)
+                px, py = int(pos[0]), int(pos[1])
+                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                    neighbor = (px + dx, py + dy)
+                    if neighbor in self._legal_set:
+                        expanded.add(neighbor)
+
+            # Filter by noisy distance constraint.
+            filtered = []
+            for pos in expanded:
+                d = manhattan_distance(my_pos, pos)
+                if low <= d <= high:
+                    # Also exclude positions within sight range (we'd see them if they were there).
+                    if d > 5:
+                        filtered.append(pos)
+
+            # If filtering left nothing (rare edge case), reset to all legal positions matching distance.
+            if not filtered:
+                filtered = [pos for pos in self.legal_positions
+                            if low <= manhattan_distance(my_pos, pos) <= high and
+                            manhattan_distance(my_pos, pos) > 5]
+
+            # If still empty (extreme edge case), keep previous belief.
+            if filtered:
+                self.enemy_beliefs[opp] = filtered
+
+    def _get_likely_enemy_position(self, game_state, opp_index):
+        """
+        Returns the most likely position of an invisible enemy.
+        Strategy: pick the belief position that is closest to our food,
+        since enemies are most dangerous when near our food.
+        If the enemy is visible, returns the exact position.
+        """
+        exact = game_state.get_agent_position(opp_index)
+        if exact is not None:
+            return exact
+
+        beliefs = self.enemy_beliefs.get(opp_index, [])
+        if not beliefs:
+            return None
+
+        # Heuristic: the most threatening position is the one closest to our defended food.
+        defended_food = self.get_food_you_are_defending(game_state).as_list()
+        if defended_food:
+            # Pick the belief position closest to any defended food (greedy approximation).
+            best_pos = None
+            best_dist = float('inf')
+            for pos in beliefs:
+                for food in defended_food:
+                    d = manhattan_distance(pos, food)
+                    if d < best_dist:
+                        best_dist = d
+                        best_pos = pos
+            return best_pos
+        else:
+            # No food to defend — just return the centroid-nearest legal position.
+            avg_x = sum(p[0] for p in beliefs) / len(beliefs)
+            avg_y = sum(p[1] for p in beliefs) / len(beliefs)
+            return min(beliefs, key=lambda p: abs(p[0] - avg_x) + abs(p[1] - avg_y))
+
+    def _get_likely_invader_entry(self, game_state):
+        """
+        Predict where invisible enemies are most likely to cross into our territory.
+        Returns the boundary point closest to the most threatening estimated enemy position.
+        Only returns a prediction when beliefs are concentrated enough to be meaningful
+        (fewer than 30 possible positions), otherwise returns None to avoid misleading patrol.
+        """
+        opponents = self.get_opponents(game_state)
+        best_boundary = None
+        min_dist = float('inf')
+
+        for opp in opponents:
+            # Only use beliefs when they are concentrated enough to be useful.
+            beliefs = self.enemy_beliefs.get(opp, [])
+            if len(beliefs) > 30 or len(beliefs) == 0:
+                continue  # Too diffuse to be meaningful.
+
+            likely_pos = self._get_likely_enemy_position(game_state, opp)
+            if likely_pos is None:
+                continue
+            # Check if this opponent is on the enemy side (potential invader approaching).
+            opp_state = game_state.get_agent_state(opp)
+            if opp_state.is_pacman:
+                # Already invaded — not an entry prediction, skip.
+                continue
+            # Find the boundary point closest to this estimated enemy position.
+            if hasattr(self, 'home_boundary'):
+                boundary = self.home_boundary
+            elif hasattr(self, 'red_boundaries'):
+                boundary = self.red_boundaries
+            else:
+                continue
+            for b in boundary:
+                d = manhattan_distance(likely_pos, b)
+                if d < min_dist:
+                    min_dist = d
+                    best_boundary = b
+
+        return best_boundary
 
     def choose_action(self, game_state):
         """
         Picks among the actions with the highest Q(s,a).
         """
+        # Update belief tracking for invisible enemies every turn.
+        self._update_beliefs(game_state)
+
         actions = game_state.get_legal_actions(self.index)
 
         # You can profile your evaluation time by uncommenting these lines
@@ -310,6 +524,9 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 (self.step_count_off - self.last_stolen_step_off) <= 5)
 
     def choose_action(self, game_state):
+        # Update belief tracking for invisible enemies every turn.
+        self._update_beliefs(game_state)
+
         # Idea 14: track stolen food so Phase 1 (border sentinel) can react.
         current_food = self.get_food_you_are_defending(game_state).as_list()
         missing = set(self.prev_defended_food_off) - set(current_food)
@@ -364,7 +581,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         chosen_pos = successor.get_agent_state(self.index).get_position()
         if chosen_pos is not None:
             self.recent_positions.append(chosen_pos)
-            self.recent_positions = self.recent_positions[-2:]
+            self.recent_positions = self.recent_positions[-6:]
 
         return chosen_action
 
@@ -430,8 +647,12 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         danger_dist = 5
         min_ghost_distance = self._min_dist_enemy_ghost(successor)
-        
+
         danger = (min_ghost_distance is not None and min_ghost_distance <= danger_dist)
+
+        # Note: Belief-based offensive retreat was tested but found to cause
+        # too many false retreats. The defensive phantom invader detection is
+        # the more reliable use of beliefs (defenders chase estimated positions).
 
         #New: if danger is close but we are near a capsule, don't retreat
 
@@ -501,13 +722,44 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
                 features['invader_distance'] = -min(dists)
             else:
+                # ── Phantom invader detection for border sentinel ──
+                if not scared:
+                    phantom_dist = None
+                    for opp in self.get_opponents(game_state):
+                        opp_state = game_state.get_agent_state(opp)
+                        if opp_state.get_position() is not None:
+                            continue
+                        if not opp_state.is_pacman:
+                            continue
+                        beliefs = self.enemy_beliefs.get(opp, [])
+                        if 0 < len(beliefs) <= 15:
+                            likely_pos = self._get_likely_enemy_position(game_state, opp)
+                            if likely_pos is not None:
+                                d = self.get_maze_distance(my_pos, likely_pos)
+                                if phantom_dist is None or d < phantom_dist:
+                                    phantom_dist = d
+                    if phantom_dist is not None:
+                        features['phantom_invader_distance'] = phantom_dist
+
                 # No visible invaders: patrol boundary or chase stolen food.
-                if not scared and self._recent_stolen_food_active_off():
+                if 'phantom_invader_distance' not in features and not scared and self._recent_stolen_food_active_off():
                     features['stolen_food_distance'] = self.get_maze_distance(
                         my_pos, self.last_stolen_pos_off)
-                else:
-                    features['distance_to_patrol'] = min(
-                        self.get_maze_distance(my_pos, p) for p in self.border_patrol_points)
+                elif 'phantom_invader_distance' not in features:
+                    # ── Belief-guided border sentinel patrol ──
+                    # If we have a predicted enemy entry point, bias patrol toward it.
+                    predicted_entry = self._get_likely_invader_entry(game_state)
+                    if predicted_entry is not None:
+                        # Blend: patrol boundary points but bias toward predicted entry.
+                        best_patrol_dist = float('inf')
+                        for p in self.border_patrol_points:
+                            d = self.get_maze_distance(my_pos, p) + 2 * self.get_maze_distance(p, predicted_entry)
+                            if d < best_patrol_dist:
+                                best_patrol_dist = d
+                        features['distance_to_patrol'] = best_patrol_dist
+                    else:
+                        features['distance_to_patrol'] = min(
+                            self.get_maze_distance(my_pos, p) for p in self.border_patrol_points)
 
             if len(invaders) == 0 and not scared and not self._recent_stolen_food_active_off():
                 spacing = self._teammate_spacing_penalty(successor, my_pos)
@@ -674,9 +926,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             my_state = successor.get_agent_state(self.index)
             if my_state.scared_timer > 0:
                 return {'on_defense': 100, 'num_invaders': -1000, 'invader_distance': 10,
+                        'phantom_invader_distance': 0,
                         'stolen_food_distance': 0, 'distance_to_patrol': -8,
                         'team_spacing_penalty': 0, 'stop': -100, 'reverse': -2}
             return {'on_defense': 100, 'num_invaders': -1000, 'invader_distance': -15,
+                    'phantom_invader_distance': -12,
                     'stolen_food_distance': -13, 'distance_to_patrol': -8,
                     'team_spacing_penalty': -10, 'stop': -100, 'reverse': -2}
 
@@ -859,12 +1113,13 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         if not self.camp_patrol_points:
             self.camp_patrol_points = [self.start]
 
-        self.recent_positions = []
-
 
 
       #NEW
     def choose_action(self, game_state):
+        # Update belief tracking for invisible enemies every turn.
+        self._update_beliefs(game_state)
+
         current_food = self.get_food_you_are_defending(game_state).as_list()
 
         # Detect missing food
@@ -893,13 +1148,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         self.prev_defended_food = current_food
         self.step_count += 1
 
-        action = super().choose_action(game_state)
-        successor= self.get_successor(game_state,action)
-        pos=successor.get_agent_state(self.index).get_position()
-        if pos:
-            self.recent_positions.append(pos)
-            self.recent_positions = self.recent_positions[-6:]
-        return action
+        # not missing: normal behaviour          
+        return super().choose_action(game_state)    
     
 
     def _recent_stolen_food_active(self):
@@ -911,9 +1161,14 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
 
     ## Idea 14: pick best interior patrol target for Phase 1 (camp defender).
+    ## Enhanced with belief tracking: bias camp patrol toward predicted enemy approach direction.
     def _get_camp_patrol_target(self, game_state):
         defended_food = self.get_food_you_are_defending(game_state).as_list()
         defended_capsules = self.get_capsules_you_are_defending(game_state)
+
+        # ── Belief-guided camp patrol ──
+        predicted_entry = self._get_likely_invader_entry(game_state)
+
         best_target = None
         best_score = float('inf')
 
@@ -925,6 +1180,9 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                 score += 3 * min(self.get_maze_distance(p, c) for c in defended_capsules)
             if self._recent_stolen_food_active() and self.last_stolen_pos is not None:
                 score += 2 * self.get_maze_distance(p, self.last_stolen_pos)
+            # NEW: move camp patrol closer to where enemies are predicted to enter.
+            if predicted_entry is not None:
+                score += 2 * self.get_maze_distance(p, predicted_entry)
             if score < best_score:
                 best_score = score
                 best_target = p
@@ -935,6 +1193,11 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
         defended_food = self.get_food_you_are_defending(game_state).as_list()
         defended_capsules = self.get_capsules_you_are_defending(game_state)
+
+        # ── Belief-guided patrol ──
+        # If an invisible enemy is estimated to be near us,
+        # bias patrol toward the boundary point closest to that threat.
+        predicted_entry = self._get_likely_invader_entry(game_state)
 
         best_target = None
         best_score = float('inf')
@@ -955,6 +1218,10 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             # go to recently stolen stuff
             if self._recent_stolen_food_active() and self.last_stolen_pos is not None:
                 score += 2 * self.get_maze_distance(p, self.last_stolen_pos)
+
+            # ── NEW: bias patrol toward predicted enemy entry point ──
+            if predicted_entry is not None:
+                score += 3 * self.get_maze_distance(p, predicted_entry)
 
             if score < best_score:
                best_score = score
@@ -1009,8 +1276,31 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
             features['invader_distance'] = min(dists)
 
-        # New: when invisible invader
-        else:
+        # ── Belief-based phantom invader detection ──
+        # Check for invisible invaders.
+        # If beliefs are concentrated, move toward estimated position.
+        elif not scared:
+            phantom_dist = None
+            for opp in self.get_opponents(game_state):
+                opp_state = game_state.get_agent_state(opp)
+                if opp_state.get_position() is not None:
+                    continue  # Visible.
+                if not opp_state.is_pacman:
+                    continue  # Ghost on enemy side, not an invader.
+                # Invisible invader! Use belief to estimate position.
+                beliefs = self.enemy_beliefs.get(opp, [])
+                if len(beliefs) <= 15 and len(beliefs) > 0:
+                    likely_pos = self._get_likely_enemy_position(game_state, opp)
+                    if likely_pos is not None:
+                        d = self.get_maze_distance(my_pos, likely_pos)
+                        if phantom_dist is None or d < phantom_dist:
+                            phantom_dist = d
+            if phantom_dist is not None:
+                # Treat as a soft invader — chase estimated position.
+                features['phantom_invader_distance'] = phantom_dist
+
+        # When no visible or phantom invaders
+        if len(invaders) == 0 and 'phantom_invader_distance' not in features:
             if (not scared) and self._recent_stolen_food_active():
                 features['stolen_food_distance'] = self.get_maze_distance(my_pos, self.last_stolen_pos)
 
@@ -1031,8 +1321,6 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             if spacing_penalty > 0:
                 features['team_spacing_penalty'] = spacing_penalty
 
-        features['loop_penalty'] = self.recent_positions.count(my_pos)
-
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
         if action == rev: features['reverse'] = 1
@@ -1049,39 +1337,40 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         winning = self._we_are_winning(game_state)
 
         if endgame and (not winning):
-            return  {'num_invaders': 0, 
-                     'on_defense': -50, 
-                     'invader_distance': 0, 
+            return  {'num_invaders': 0,
+                     'on_defense': -50,
+                     'invader_distance': 0,
+                     'phantom_invader_distance': 0,
                      'successor_score': 100,
-                     'distance_to_food': -3, 
-                     'stop': -100, 'reverse': -2, 
-                     'stolen_food_distance': 0, 
+                     'distance_to_food': -3,
+                     'stop': -100, 'reverse': -2,
+                     'stolen_food_distance': 0,
                      'distance_to_patrol': 0,
-                     'team_spacing_penalty': 0,
-                     'loop_penalty' : -200}
+                     'team_spacing_penalty': 0}
 
-        #If we are scared, avoid invaders instead of chasing. 
+        #If we are scared, avoid invaders instead of chasing.
         if my_state.scared_timer > 0:
-            return {'num_invaders': -1000, 
-                    'on_defense': 100, 
-                    'invader_distance': 10, 
-                    'stop': -100, 
-                    'reverse': -2, 
-                    'stolen_food_distance': 0, 
+            return {'num_invaders': -1000,
+                    'on_defense': 100,
+                    'invader_distance': 10,
+                    'phantom_invader_distance': 0,
+                    'stop': -100,
+                    'reverse': -2,
+                    'stolen_food_distance': 0,
                     'distance_to_patrol': -8,
-                    'team_spacing_penalty': 0,
-                    'loop_penalty' : 10}
-        
-        #Non scared behaviour, chase invaders and stolen food. 
-        return {'num_invaders': -1000, 
-                'on_defense': 100, 
-                'invader_distance': -15, 
-                'stop': -100, 
-                'reverse': -2, 
-                'stolen_food_distance': -13,  
+                    'team_spacing_penalty': 0}
+
+        #Non scared behaviour, chase invaders and stolen food.
+        # phantom_invader_distance: chase estimated invisible invader position (belief-based).
+        return {'num_invaders': -1000,
+                'on_defense': 100,
+                'invader_distance': -15,
+                'phantom_invader_distance': -12,
+                'stop': -100,
+                'reverse': -2,
+                'stolen_food_distance': -13,
                 'distance_to_patrol': -6,
-                'team_spacing_penalty': -10,
-                'loop_penalty' : -50}
+                'team_spacing_penalty': -10}
 
 
 
@@ -1134,4 +1423,6 @@ if we are losing, go full attack. -> IMPLEMENTED
       grabs a few dots, returns home quickly. Avoids ghosts aggressively.
     - DefensiveReflexAgent switches to BORDER PATROL: moves to boundary
       line (existing patrol_points), intercepts remaining enemy attacks.
+
+15) Predictive Enemy Position Estimation (Belief Tracking) -> IMPLEMENTED
 """
