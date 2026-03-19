@@ -364,7 +364,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         chosen_pos = successor.get_agent_state(self.index).get_position()
         if chosen_pos is not None:
             self.recent_positions.append(chosen_pos)
-            self.recent_positions = self.recent_positions[-6:]
+            self.recent_positions = self.recent_positions[-2:]
 
         return chosen_action
 
@@ -859,6 +859,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         if not self.camp_patrol_points:
             self.camp_patrol_points = [self.start]
 
+        self.recent_positions = []
+
 
 
       #NEW
@@ -891,8 +893,13 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         self.prev_defended_food = current_food
         self.step_count += 1
 
-        # not missing: normal behaviour          
-        return super().choose_action(game_state)    
+        action = super().choose_action(game_state)
+        successor= self.get_successor(game_state,action)
+        pos=successor.get_agent_state(self.index).get_position()
+        if pos:
+            self.recent_positions.append(pos)
+            self.recent_positions = self.recent_positions[-6:]
+        return action
     
 
     def _recent_stolen_food_active(self):
@@ -1024,6 +1031,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             if spacing_penalty > 0:
                 features['team_spacing_penalty'] = spacing_penalty
 
+        features['loop_penalty'] = self.recent_positions.count(my_pos)
+
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
         if action == rev: features['reverse'] = 1
@@ -1048,7 +1057,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                      'stop': -100, 'reverse': -2, 
                      'stolen_food_distance': 0, 
                      'distance_to_patrol': 0,
-                     'team_spacing_penalty': 0}
+                     'team_spacing_penalty': 0,
+                     'loop_penalty' : -200}
 
         #If we are scared, avoid invaders instead of chasing. 
         if my_state.scared_timer > 0:
@@ -1059,7 +1069,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                     'reverse': -2, 
                     'stolen_food_distance': 0, 
                     'distance_to_patrol': -8,
-                    'team_spacing_penalty': 0}
+                    'team_spacing_penalty': 0,
+                    'loop_penalty' : 10}
         
         #Non scared behaviour, chase invaders and stolen food. 
         return {'num_invaders': -1000, 
@@ -1069,7 +1080,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
                 'reverse': -2, 
                 'stolen_food_distance': -13,  
                 'distance_to_patrol': -6,
-                'team_spacing_penalty': -10}
+                'team_spacing_penalty': -10,
+                'loop_penalty' : -50}
 
 
 
