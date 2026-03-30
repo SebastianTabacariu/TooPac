@@ -362,6 +362,7 @@ class ReflexCaptureAgent(CaptureAgent):
         return None
 
     def _dist_to_teammate(self, game_state, my_pos):
+        """what's the distance between our agents?"""
         teammate = self._get_teammate_index(game_state)
         if teammate is None or my_pos is None:
             return None
@@ -371,7 +372,7 @@ class ReflexCaptureAgent(CaptureAgent):
         return self.get_maze_distance(my_pos, teammate_pos)
 
     def _open_neighbors_count(self, game_state, pos):
-        """How many walkable tiles are adjacent to pos."""
+        """How many walkable tiles are adjacent to pos?"""
         if pos is None:
             return 0
         x, y = int(pos[0]), int(pos[1])
