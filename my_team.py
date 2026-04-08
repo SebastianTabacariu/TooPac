@@ -701,7 +701,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         # ── PHASE 1: Border sentinel (defend until PHASE_TRIGGER) ──
         if not self._in_late_game(game_state):
-            return self._compute_phasel_sentinal_features(game_state, action)
+            return self._compute_phase1_sentinal_features(game_state, action)
         
 
         # ── PHASE 2: Attacker (cross border, grab food, return) ──
