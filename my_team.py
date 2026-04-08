@@ -596,7 +596,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         return danger
 
 
-    def _compute_phasel_sentinal_features(self, game_state, action):
+    def _compute_phase1_sentinal_features(self, game_state, action):
         """Features for Phase 1: act as a border sentinel, defending the boundary"""
         features = util.Counter()
         successor = self.get_successor(game_state, action)
