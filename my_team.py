@@ -892,6 +892,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
     def register_initial_state(self, game_state):
         super().register_initial_state(game_state)
 
+        # Track stolen food on our side.
         self.prev_defended_food = self.get_food_you_are_defending(game_state).as_list()
         self.last_stolen_pos = None
         self.last_stolen_step = -float('inf')
@@ -901,61 +902,58 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         width, height = walls.width, walls.height
         self.mid_y = height // 2
 
-        # Home boundary column.
-        if self.red:
-            boundary_x = (width //2) - 1
-        else:
-            boundary_x = width // 2
-        self.home_boundary = []
-        for y in range(height):
-            if not walls[boundary_x][y]:
-                self.home_boundary.append((boundary_x, y))
-
-        # Precompute patrol points scored by: center bias + food proximity + capsule proximity.
         defended_food = self.get_food_you_are_defending(game_state).as_list()
         defended_capsules = self.get_capsules_you_are_defending(game_state)
 
-        scored_boundary = []
-        for b in self.home_boundary:
-            score = abs(b[1] - self.mid_y)
+        # Boundary column on our side.
+        boundary_x = (width // 2) - 1 if self.red else width // 2
+        self.home_boundary = [
+            (boundary_x, y)
+            for y in range(height)
+            if not walls[boundary_x][y]
+        ]
+
+        def defensive_position_score(pos):
+            score = abs(pos[1] - self.mid_y)
             if defended_food:
-                score += 2 * min(self.get_maze_distance(b, food) for food in defended_food)
+                score += 2 * min(self.get_maze_distance(pos, food) for food in defended_food)
             if defended_capsules:
-                score += 3 * min(self.get_maze_distance(b, cap) for cap in defended_capsules)
-            scored_boundary.append((score, b))
+                score += 3 * min(self.get_maze_distance(pos, cap) for cap in defended_capsules)
+            return score
+
+        # Boundary patrol points: best 3 positions on the home boundary.
+        scored_boundary = [
+            (defensive_position_score(pos), pos)
+            for pos in self.home_boundary
+        ]
         scored_boundary.sort()
 
         self.patrol_points = [pos for _, pos in scored_boundary[:3]]
         if not self.patrol_points:
             self.patrol_points = list(self.home_boundary)
 
-        # Phase 1 camp points: 3-5 tiles behind the border, near food/capsules.
+        # Camp patrol points: 3 to 5 tiles behind the boundary.
         if self.red:
             camp_x_range = range(max(1, boundary_x - 5), boundary_x)
         else:
             camp_x_range = range(boundary_x + 1, min(width - 1, boundary_x + 6))
-
         camp_candidates = []
         for x in camp_x_range:
             for y in range(height):
                 if not walls[x][y]:
                     camp_candidates.append((abs(y - self.mid_y), (x, y)))
+
         camp_candidates.sort()
 
-        scored_camp = []
-        for _, pos in camp_candidates[:15]:
-            score = abs(pos[1] - self.mid_y)
-            if defended_food:
-                score += 2 * min(self.get_maze_distance(pos, f) for f in defended_food)
-            if defended_capsules:
-                score += 3 * min(self.get_maze_distance(pos, c) for c in defended_capsules)
-            scored_camp.append((score, pos))
+        scored_camp = [
+            (defensive_position_score(pos), pos)
+            for _, pos in camp_candidates[:15]
+        ]
         scored_camp.sort()
-        self.camp_patrol_points = [p for _, p in scored_camp[:3]]
+
+        self.camp_patrol_points = [pos for _, pos in scored_camp[:3]]
         if not self.camp_patrol_points:
             self.camp_patrol_points = [self.start]
-
-
 
 
     def choose_action(self, game_state):
